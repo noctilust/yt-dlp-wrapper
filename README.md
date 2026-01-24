@@ -34,14 +34,14 @@ The script uses yt-dlp's advanced format selector with the following priority:
 - Python 3.10+ (enforced as of yt-dlp 2025.10.22)
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) **2025.11.12 or later** (recommended for full YouTube support)
   - Earlier versions may work but will have limited YouTube format availability
-  - Install/update with: `pip install -U yt-dlp`
+  - Install/update with: `uv pip install -U yt-dlp`
 - JavaScript runtime (required for YouTube as of yt-dlp 2025.11.12):
   - **Deno** (recommended): `brew install deno` (macOS) or see https://deno.land/
   - Alternative runtimes: Node.js 20+, Bun 1.0.31+, or QuickJS 2023-12-9+
   - Without a runtime, YouTube downloads will have severely limited format availability
 - At least one supported browser: Firefox, Chrome, or Safari (for cookie extraction)
 - **PO Token provider plugin** (optional but recommended for YouTube):
-  - Plugin: `pip install bgutil-ytdlp-pot-provider`
+  - Plugin: `uv pip install bgutil-ytdlp-pot-provider`
   - HTTP server: `docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider`
   - Automatically bypasses YouTube bot detection and PO Token requirements
   - See https://github.com/Brainicism/bgutil-ytdlp-pot-provider for more details
@@ -51,8 +51,8 @@ The script uses yt-dlp's advanced format selector with the following priority:
 1. Clone this repository or copy `yt-dlp-wrapper.py` to your local machine.
 2. Install yt-dlp CLI tool (version 2025.11.12 or later):
     ```sh
-    # Using pip (recommended)
-    pip install -U yt-dlp
+    # Using uv (recommended)
+    uv pip install -U yt-dlp
 
     # Or using pipx (isolated installation)
     pipx install yt-dlp
@@ -74,7 +74,7 @@ The script uses yt-dlp's advanced format selector with the following priority:
 4. (Optional but recommended) Install PO Token provider plugin for enhanced YouTube support:
     ```sh
     # Install the plugin
-    pip install bgutil-ytdlp-pot-provider
+    uv pip install bgutil-ytdlp-pot-provider
 
     # Start the HTTP server with Docker
     docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider
@@ -272,7 +272,7 @@ The wrapper automatically integrates with the **bgutil-ytdlp-pot-provider** plug
 **Installation:**
 ```sh
 # Install the plugin
-pip install bgutil-ytdlp-pot-provider
+uv pip install bgutil-ytdlp-pot-provider
 
 # Start the HTTP server with Docker (recommended)
 docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider

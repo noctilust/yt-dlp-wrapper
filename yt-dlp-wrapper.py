@@ -74,7 +74,7 @@ class VideoDownloader:
 
         if not shutil.which('yt-dlp'):
             raise YtDlpWrapperError(
-                "yt-dlp not found. Install with: pip install -U yt-dlp"
+                "yt-dlp not found. Install with: uv pip install -U yt-dlp"
             )
         
         # Check if browser is available for cookie extraction
@@ -111,8 +111,14 @@ class VideoDownloader:
     def _check_pot_plugin_installed(self) -> bool:
         """Check if bgutil-ytdlp-pot-provider plugin is installed."""
         try:
+            # Try uv first, fall back to pip if uv is not available
+            uv_cmd = ['uv', 'pip', 'show', 'bgutil-ytdlp-pot-provider']
+            pip_cmd = [sys.executable, '-m', 'pip', 'show', 'bgutil-ytdlp-pot-provider']
+
+            cmd = uv_cmd if shutil.which('uv') else pip_cmd
+
             result = subprocess.run(
-                [sys.executable, '-m', 'pip', 'show', 'bgutil-ytdlp-pot-provider'],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -154,7 +160,7 @@ class VideoDownloader:
         if not plugin_installed:
             logger.info(
                 "💡 Tip: Install bgutil-ytdlp-pot-provider to bypass YouTube's bot detection:\n"
-                "   pip install bgutil-ytdlp-pot-provider\n"
+                "   uv pip install bgutil-ytdlp-pot-provider\n"
                 "   See: https://github.com/Brainicism/bgutil-ytdlp-pot-provider"
             )
             return None
@@ -456,7 +462,7 @@ class VideoDownloader:
                         "⚠️  YouTube PO Token required.\n"
                         "   \n"
                         "   RECOMMENDED SOLUTION - Install PO Token provider plugin:\n"
-                        "     pip install bgutil-ytdlp-pot-provider\n"
+                        "     uv pip install bgutil-ytdlp-pot-provider\n"
                         "   \n"
                         "   Then start the HTTP server with Docker:\n"
                         "     docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider\n"

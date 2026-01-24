@@ -59,14 +59,14 @@ python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"  # Cus
 
 ### Dependencies
 - **Python 3.10+** required (enforced as of yt-dlp 2025.10.22)
-- **yt-dlp** must be installed and in PATH: `pip install -U yt-dlp`
+- **yt-dlp** must be installed and in PATH: `uv pip install -U yt-dlp`
 - **JavaScript runtime** (required for YouTube as of yt-dlp 2025.11.12):
   - **Deno** (recommended, enabled by default): `brew install deno` (macOS) or see https://deno.land/
   - Alternative runtimes: Node.js 20+, Bun 1.0.31+, or QuickJS 2023-12-9+
   - Without a runtime, YouTube downloads will have severely limited format availability
 - **Browser** (Firefox, Chrome, or Safari) for cookie extraction and authenticated content
 - **PO Token provider plugin** (optional but recommended for YouTube):
-  - Install plugin: `pip install bgutil-ytdlp-pot-provider`
+  - Install plugin: `uv pip install bgutil-ytdlp-pot-provider`
   - Start HTTP server with Docker: `docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider`
   - Or use Node.js setup (requires Node.js 18+): see https://github.com/Brainicism/bgutil-ytdlp-pot-provider
   - Automatically bypasses YouTube bot detection and PO Token requirements
