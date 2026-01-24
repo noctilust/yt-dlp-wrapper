@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 from datetime import datetime
@@ -106,6 +107,78 @@ class VideoDownloader:
                 return runtime
 
         return None
+
+    def _check_pot_plugin_installed(self) -> bool:
+        """Check if bgutil-ytdlp-pot-provider plugin is installed."""
+        try:
+            result = subprocess.run(
+                [sys.executable, '-m', 'pip', 'show', 'bgutil-ytdlp-pot-provider'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                logger.debug("PO Token provider plugin is installed")
+                return True
+            return False
+        except (subprocess.SubprocessError, Exception) as e:
+            logger.debug(f"Could not check PO Token plugin: {e}")
+            return False
+
+    def _check_pot_server_running(self, host: str = '127.0.0.1', port: int = 4416, timeout: float = 1.0) -> bool:
+        """Check if the PO Token HTTP server is running."""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            result = sock.connect_ex((host, port))
+            sock.close()
+            if result == 0:
+                logger.debug(f"PO Token HTTP server is running at {host}:{port}")
+                return True
+            return False
+        except (socket.error, Exception) as e:
+            logger.debug(f"PO Token HTTP server check failed: {e}")
+            return False
+
+    def _validate_pot_provider(self, url: str, pot_provider_mode: Optional[str] = None) -> Optional[str]:
+        """
+        Validate PO Token provider setup for YouTube downloads.
+        Returns extractor args string if provider is configured, None otherwise.
+        """
+        if self.detect_platform(url) != 'youtube':
+            return None
+
+        # Check if plugin is installed
+        plugin_installed = self._check_pot_plugin_installed()
+
+        if not plugin_installed:
+            logger.info(
+                "💡 Tip: Install bgutil-ytdlp-pot-provider to bypass YouTube's bot detection:\n"
+                "   pip install bgutil-ytdlp-pot-provider\n"
+                "   See: https://github.com/Brainicism/bgutil-ytdlp-pot-provider"
+            )
+            return None
+
+        # Plugin is installed, check which mode to use
+        if pot_provider_mode == 'script':
+            logger.info("Using PO Token provider in script mode")
+            return None  # Script mode uses default plugin behavior
+
+        # Default to HTTP server mode
+        server_running = self._check_pot_server_running()
+
+        if server_running:
+            logger.info("✓ PO Token provider HTTP server detected and ready")
+            return None  # HTTP server uses default plugin behavior
+        else:
+            logger.warning(
+                "⚠️  PO Token provider plugin installed but HTTP server not detected.\n"
+                "   Start the server with Docker:\n"
+                "     docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider\n"
+                "   Or use Node.js (see: https://github.com/Brainicism/bgutil-ytdlp-pot-provider)\n"
+                "   Alternatively, use --pot-provider-mode script (slower but no server needed)"
+            )
+            return None
 
     def _validate_youtube_requirements(self, url: str) -> None:
         """Validate YouTube-specific requirements like JavaScript runtime."""
@@ -240,7 +313,10 @@ class VideoDownloader:
                       sponsorblock_mark: Optional[str] = None,
                       sponsorblock_remove: Optional[str] = None,
                       embed_chapters: bool = False,
-                      sleep_interval: Optional[int] = None) -> bool:
+                      sleep_interval: Optional[int] = None,
+                      pot_provider_mode: Optional[str] = None,
+                      pot_provider_url: Optional[str] = None,
+                      pot_provider_script: Optional[str] = None) -> bool:
         """Download video using yt-dlp with optimized settings."""
         if extra_args is None:
             extra_args = []
@@ -251,6 +327,9 @@ class VideoDownloader:
 
         # Validate YouTube requirements (JavaScript runtime)
         self._validate_youtube_requirements(url)
+
+        # Validate and configure PO Token provider for YouTube
+        self._validate_pot_provider(url, pot_provider_mode)
 
         # Check for premium formats if YouTube and prefer_premium is enabled
         if platform == 'youtube' and prefer_premium and not format_selector:
@@ -324,7 +403,32 @@ class VideoDownloader:
                 else:
                     # Add new extractor args
                     base_cmd.extend(['--extractor-args', formats_arg])
-        
+
+            # Configure PO Token provider if custom settings are provided
+            pot_args = []
+            if pot_provider_url:
+                pot_args.append(f"youtubepot-bgutilhttp:base_url={pot_provider_url}")
+                logger.info(f"Using custom PO Token provider URL: {pot_provider_url}")
+            if pot_provider_script:
+                pot_args.append(f"youtubepot-bgutilscript:script_path={pot_provider_script}")
+                logger.info(f"Using custom PO Token provider script: {pot_provider_script}")
+
+            if pot_args:
+                # Combine with existing extractor args
+                existing_yt_args = None
+                for i, arg in enumerate(base_cmd):
+                    if i > 0 and base_cmd[i-1] == '--extractor-args' and 'youtube' in arg:
+                        existing_yt_args = i
+                        break
+
+                for pot_arg in pot_args:
+                    if existing_yt_args is not None:
+                        # Append to existing YouTube extractor args
+                        base_cmd[existing_yt_args] = f"{base_cmd[existing_yt_args]};{pot_arg}"
+                    else:
+                        # Add new extractor args
+                        base_cmd.extend(['--extractor-args', pot_arg])
+
         # Add extra arguments
         base_cmd.extend(extra_args)
         base_cmd.append(url)
@@ -343,12 +447,35 @@ class VideoDownloader:
             if platform == 'youtube' and any(phrase in error_output for phrase in [
                 "PO Token", "po_token", "requires a GVS PO Token"]):
                 po_token_error = True
-                logger.warning(
-                    "⚠️  YouTube PO Token required.\n"
-                    "   Try using the 'mweb' client: --youtube-client mweb\n"
-                    "   Note: yt-dlp cannot generate PO Tokens automatically.\n"
-                    "   See: https://github.com/yt-dlp/yt-dlp/wiki/Extractors#po-token-guide"
-                )
+
+                # Check if plugin is installed
+                plugin_installed = self._check_pot_plugin_installed()
+
+                if not plugin_installed:
+                    logger.warning(
+                        "⚠️  YouTube PO Token required.\n"
+                        "   \n"
+                        "   RECOMMENDED SOLUTION - Install PO Token provider plugin:\n"
+                        "     pip install bgutil-ytdlp-pot-provider\n"
+                        "   \n"
+                        "   Then start the HTTP server with Docker:\n"
+                        "     docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider\n"
+                        "   \n"
+                        "   This automates PO Token generation. See:\n"
+                        "     https://github.com/Brainicism/bgutil-ytdlp-pot-provider\n"
+                        "   \n"
+                        "   Alternative: Try 'mweb' client: --youtube-client mweb"
+                    )
+                else:
+                    logger.warning(
+                        "⚠️  YouTube PO Token required but provider plugin failed.\n"
+                        "   \n"
+                        "   Make sure the HTTP server is running:\n"
+                        "     docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider\n"
+                        "   \n"
+                        "   Or try script mode: --pot-provider-mode script\n"
+                        "   Or try 'mweb' client: --youtube-client mweb"
+                    )
 
             # Check if the error might be related to SABR streaming
             sabr_related = False
@@ -380,7 +507,10 @@ class VideoDownloader:
                         sponsorblock_mark=sponsorblock_mark,
                         sponsorblock_remove=sponsorblock_remove,
                         embed_chapters=embed_chapters,
-                        sleep_interval=sleep_interval
+                        sleep_interval=sleep_interval,
+                        pot_provider_mode=pot_provider_mode,
+                        pot_provider_url=pot_provider_url,
+                        pot_provider_script=pot_provider_script
                     ):
                         return True
                 
@@ -388,7 +518,7 @@ class VideoDownloader:
                 if sabr_related and not try_sabr:
                     logger.info("Trying with SABR format support enabled")
                     filtered_args = [arg for arg in extra_args if "--extractor-args" not in arg]
-                    
+
                     return self.download_video(
                         url=url,
                         extra_args=filtered_args,
@@ -399,7 +529,10 @@ class VideoDownloader:
                         sponsorblock_mark=sponsorblock_mark,
                         sponsorblock_remove=sponsorblock_remove,
                         embed_chapters=embed_chapters,
-                        sleep_interval=sleep_interval
+                        sleep_interval=sleep_interval,
+                        pot_provider_mode=pot_provider_mode,
+                        pot_provider_url=pot_provider_url,
+                        pot_provider_script=pot_provider_script
                     )
             
             logger.error(f"Download failed with return code {e.returncode}")
@@ -448,6 +581,12 @@ Examples:
                        help='Embed chapter markers in video file')
     parser.add_argument('--sleep-interval', type=int, metavar='SECONDS',
                        help='Sleep interval between downloads (recommended: 5-10 seconds)')
+    parser.add_argument('--pot-provider-mode', choices=['http', 'script'],
+                       help='PO Token provider mode: http (default, requires server) or script (slower but no server)')
+    parser.add_argument('--pot-provider-url', metavar='URL',
+                       help='Custom PO Token provider HTTP server URL (default: http://127.0.0.1:4416)')
+    parser.add_argument('--pot-provider-script', metavar='PATH',
+                       help='Path to PO Token provider script (for script mode)')
 
     # Parse known and unknown args to allow passing through to yt-dlp
     args, extra_args = parser.parse_known_args()
@@ -468,7 +607,10 @@ Examples:
             sponsorblock_mark=args.sponsorblock_mark,
             sponsorblock_remove=args.sponsorblock_remove,
             embed_chapters=args.embed_chapters,
-            sleep_interval=args.sleep_interval
+            sleep_interval=args.sleep_interval,
+            pot_provider_mode=args.pot_provider_mode,
+            pot_provider_url=args.pot_provider_url,
+            pot_provider_script=args.pot_provider_script
         )
         
         sys.exit(0 if success else 1)

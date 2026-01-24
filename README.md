@@ -18,7 +18,8 @@ Vibe coding an optimized Python wrapper script for [yt-dlp](https://github.com/y
 - **Dependency Validation**: Automatic checking of Python 3.10+, yt-dlp CLI, JavaScript runtime, and browsers
 - **Timeout Protection**: 5 minutes for metadata, 1 hour for downloads
 - **YouTube SABR Support**: Handles YouTube's Server-side Adaptive Bitrate streaming protocol with automatic client fallbacks
-- **PO Token Error Detection**: Detects PO Token errors and suggests appropriate client options
+- **PO Token Provider Integration**: Automatic detection and integration with bgutil-ytdlp-pot-provider plugin for bypassing YouTube bot detection
+- **PO Token Error Detection**: Detects PO Token errors and recommends plugin installation or suggests appropriate client options
 
 ## Format Selection Strategy
 
@@ -39,6 +40,11 @@ The script uses yt-dlp's advanced format selector with the following priority:
   - Alternative runtimes: Node.js 20+, Bun 1.0.31+, or QuickJS 2023-12-9+
   - Without a runtime, YouTube downloads will have severely limited format availability
 - At least one supported browser: Firefox, Chrome, or Safari (for cookie extraction)
+- **PO Token provider plugin** (optional but recommended for YouTube):
+  - Plugin: `pip install bgutil-ytdlp-pot-provider`
+  - HTTP server: `docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider`
+  - Automatically bypasses YouTube bot detection and PO Token requirements
+  - See https://github.com/Brainicism/bgutil-ytdlp-pot-provider for more details
 
 ## Installation
 
@@ -65,7 +71,18 @@ The script uses yt-dlp's advanced format selector with the following priority:
     # Windows (PowerShell)
     irm https://deno.land/install.ps1 | iex
     ```
-4. (Optional) Make the script executable:
+4. (Optional but recommended) Install PO Token provider plugin for enhanced YouTube support:
+    ```sh
+    # Install the plugin
+    pip install bgutil-ytdlp-pot-provider
+
+    # Start the HTTP server with Docker
+    docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider
+
+    # Or use Node.js setup (requires Node.js 18+)
+    # See https://github.com/Brainicism/bgutil-ytdlp-pot-provider
+    ```
+5. (Optional) Make the script executable:
     ```sh
     chmod +x yt-dlp-wrapper.py
     ```
@@ -140,6 +157,16 @@ python yt-dlp-wrapper.py "URL" --sponsorblock-remove sponsor
 python yt-dlp-wrapper.py "URL" --sleep-interval 5
 ```
 
+**Use PO Token provider in script mode (no server needed):**
+```sh
+python yt-dlp-wrapper.py "URL" --pot-provider-mode script
+```
+
+**Use custom PO Token provider server:**
+```sh
+python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"
+```
+
 ### Command-Line Options
 
 - `--format, -f`: Custom format selector (overrides default smart selection)
@@ -149,10 +176,13 @@ python yt-dlp-wrapper.py "URL" --sleep-interval 5
 - `--enable-sabr`: Enable YouTube SABR streaming format support
 - `--no-fallback`: Disable automatic fallback to other YouTube clients
 - `--no-premium`: Disable automatic selection of Premium formats
-- `--sponsorblock-mark CATS`: Mark SponsorBlock categories as chapters (e.g., "all", "sponsor,intro,outro")
+- `--sponsorblock-mark CATS`: Mark SponsorBlock categories as chapters (e.g., "all", "sponsor,intro,outro,hook")
 - `--sponsorblock-remove CATS`: Remove SponsorBlock categories from video (e.g., "sponsor")
 - `--embed-chapters`: Embed chapter markers in video file
 - `--sleep-interval SECONDS`: Sleep interval between downloads (recommended: 5-10 seconds)
+- `--pot-provider-mode MODE`: PO Token provider mode (http or script)
+- `--pot-provider-url URL`: Custom PO Token provider HTTP server URL (default: http://127.0.0.1:4416)
+- `--pot-provider-script PATH`: Path to PO Token provider script (for script mode)
 - `--help, -h`: Show help message with examples
 
 ### Pass-through Arguments
@@ -171,10 +201,11 @@ python yt-dlp-wrapper.py "URL" --verbose --limit-rate 1M --no-playlist
 ### During Download
 2. **Detects platform** from the URL (YouTube, X/Twitter, or other)
 3. **Validates YouTube requirements** - Checks for JavaScript runtime (Deno/Node.js/Bun/QuickJS) and warns if missing
-4. **Checks for Premium formats** - For YouTube videos, automatically detects and selects YouTube Premium formats when available (unless `--no-premium` is used)
-5. **Fetches video metadata** - Retrieves title, upload date, and other information with 5-minute timeout protection
-6. **Creates output directory** - Generates organized folder structure (`YYYY.MM.DD - Video Title`) with sanitized names (max 100 characters)
-7. **Builds yt-dlp command** - Constructs command with:
+4. **Validates PO Token provider** - Checks if bgutil-ytdlp-pot-provider plugin is installed and HTTP server is running (for YouTube)
+5. **Checks for Premium formats** - For YouTube videos, automatically detects and selects YouTube Premium formats when available (unless `--no-premium` is used)
+6. **Fetches video metadata** - Retrieves title, upload date, and other information with 5-minute timeout protection
+7. **Creates output directory** - Generates organized folder structure (`YYYY.MM.DD - Video Title`) with sanitized names (max 100 characters)
+8. **Builds yt-dlp command** - Constructs command with:
    - Cookie extraction from specified browser
    - Format selector (Premium or default)
    - Subtitle download flags (`--write-auto-sub --sub-lang en.* --convert-subs srt`)
@@ -182,9 +213,10 @@ python yt-dlp-wrapper.py "URL" --verbose --limit-rate 1M --no-playlist
    - Chapter embedding (`--embed-chapters` only if flag specified)
    - SponsorBlock options (YouTube only, if specified)
    - YouTube client selection (if specified)
+   - PO Token provider configuration (if custom settings provided)
    - Rate limiting (if `--sleep-interval` specified)
-8. **Executes download** - Runs yt-dlp command with 1-hour timeout protection
-9. **Handles errors automatically** - Detects SABR/PO Token errors and tries fallback YouTube clients if enabled
+9. **Executes download** - Runs yt-dlp command with 1-hour timeout protection
+10. **Handles errors automatically** - Detects SABR/PO Token errors, provides plugin installation guidance, and tries fallback YouTube clients if enabled
 
 ## Example
 
@@ -224,7 +256,29 @@ This will:
 
 Starting in 2025, YouTube began rolling out a new streaming protocol called SABR (Server-side Adaptive Bitrate) and PO Token requirements, which have impacted tools like yt-dlp. When YouTube serves content via SABR or requires a PO Token, traditional download methods may fail or only retrieve lower quality formats.
 
-This wrapper includes features to handle SABR streaming and PO Token errors:
+This wrapper includes comprehensive features to handle SABR streaming and PO Token errors:
+
+### PO Token Provider Integration (Recommended Solution)
+
+The wrapper automatically integrates with the **bgutil-ytdlp-pot-provider** plugin, which provides automated PO Token generation:
+
+1. **Automatic Detection**: The wrapper checks if the plugin is installed and the HTTP server is running
+2. **Helpful Guidance**: If not detected, provides clear installation instructions with Docker command
+3. **Custom Configuration**: Supports custom server URLs and script mode via command-line options:
+   - `--pot-provider-mode script` - Use script mode (slower but no server needed)
+   - `--pot-provider-url URL` - Custom HTTP server URL
+   - `--pot-provider-script PATH` - Custom script path
+
+**Installation:**
+```sh
+# Install the plugin
+pip install bgutil-ytdlp-pot-provider
+
+# Start the HTTP server with Docker (recommended)
+docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider
+```
+
+### Alternative Solutions
 
 1. **Automatic Client Fallback**: If a download fails due to SABR restrictions or PO Token errors, the wrapper will automatically try alternative YouTube clients: `android`, `tv`, `tv_downgraded`, `mweb`, `web_music`, `android_music`.
 
@@ -233,11 +287,11 @@ This wrapper includes features to handle SABR streaming and PO Token errors:
    - `android` - Android client (often still provides traditional formats)
    - `tv` - TV client (often still provides traditional formats)
    - `tv_downgraded` - TV client with downgraded version (prevents SABR on logged-in accounts)
-   - `mweb` - Mobile web client (recommended for PO Token issues)
+   - `mweb` - Mobile web client (alternative for PO Token issues)
    - `web_music` - YouTube Music web client
    - `android_music` - YouTube Music android client
 
-3. **PO Token Error Detection**: The wrapper automatically detects PO Token errors and suggests using the `mweb` client with helpful guidance.
+3. **PO Token Error Detection**: The wrapper automatically detects PO Token errors and recommends installing the plugin or trying the `mweb` client.
 
 4. **SABR Format Support**: If needed, you can enable SABR format support with `--enable-sabr`. This requires yt-dlp 2025.11.12 or later with SABR streaming support.
 
@@ -281,6 +335,7 @@ The wrapper includes built-in SponsorBlock support for YouTube videos, allowing 
 - `filler` - Filler tangent or off-topic content
 - `interaction` - Reminder to like, subscribe, or follow
 - `music_offtopic` - Non-music sections in music videos
+- `hook` - Segments designed to "hook" viewers at the beginning (added in yt-dlp 2025.11.12)
 - `poi_highlight` - Points of interest highlights
 - `chapter` - Chapter markers
 - `all` - All categories
