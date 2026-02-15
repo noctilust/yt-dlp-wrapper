@@ -23,7 +23,10 @@ This is a Python wrapper script for [yt-dlp](https://github.com/yt-dlp/yt-dlp) t
 
 ### Configuration Constants
 - `DEFAULT_FORMAT_SELECTOR`: Complex format selector string prioritizing resolution and codec
-- `YOUTUBE_CLIENTS`: Available YouTube client options (web, android, tv, tv_downgraded, mweb, web_music, android_music)
+- `YOUTUBE_CLIENTS`: Available YouTube client options (web, android, tv, tv_downgraded, mweb, web_embedded, web_music, android_music)
+  - **Note**: `ios_downgraded` and `tv_embedded` were removed in yt-dlp 2026.01.31 (non-functional)
+  - **Note**: `tv` client may require login for some users (A/B testing as of Jan 2026)
+  - **New**: `web_embedded` added in yt-dlp 2026.01.31 as fallback for android_vr
 - `SUPPORTED_PLATFORMS`: Platform detection mapping for YouTube, X/Twitter
 
 ## Common Development Commands
@@ -37,6 +40,9 @@ python yt-dlp-wrapper.py "URL" --no-premium --no-fallback
 python yt-dlp-wrapper.py "URL" --sponsorblock-mark all --embed-chapters
 python yt-dlp-wrapper.py "URL" --youtube-client mweb  # For PO Token issues
 python yt-dlp-wrapper.py "URL" --sleep-interval 5  # Rate limiting for batch downloads
+python yt-dlp-wrapper.py "URL" --sleep-subtitles 2.5 --sleep-interval 5  # Fine-grained rate limiting
+python yt-dlp-wrapper.py "URL" --format-sort-reset --format "bestvideo+bestaudio"  # Reset format sorting
+python yt-dlp-wrapper.py "URL" --compat-options 2025  # Use 2025 compatibility mode
 python yt-dlp-wrapper.py "URL" --pot-provider-mode script  # Use PO Token provider in script mode
 python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"  # Custom PO Token server
 ```
@@ -45,7 +51,7 @@ python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"  # Cus
 - `--format, -f`: Custom format selector (overrides default)
 - `--browser, -b`: Browser for cookie extraction (firefox, chrome, safari)
 - `--verbose, -v`: Enable debug logging
-- `--youtube-client, -y`: Specific YouTube client (web, android, tv, tv_downgraded, mweb, web_music, android_music)
+- `--youtube-client, -y`: Specific YouTube client (web, android, tv, tv_downgraded, mweb, web_embedded, web_music, android_music)
 - `--enable-sabr`: Enable YouTube SABR streaming format support
 - `--no-fallback`: Disable automatic fallback to other YouTube clients
 - `--no-premium`: Disable automatic Premium format selection
@@ -53,6 +59,9 @@ python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"  # Cus
 - `--sponsorblock-remove CATS`: Remove SponsorBlock categories from video (e.g., "sponsor")
 - `--embed-chapters`: Embed chapter markers in video file
 - `--sleep-interval SECONDS`: Sleep interval between downloads (recommended: 5-10 seconds for rate limiting)
+- `--sleep-subtitles SECONDS`: Sleep interval between subtitle downloads (accepts decimal values, added in yt-dlp 2026.01.29)
+- `--format-sort-reset`: Reset format sorting preferences (useful with custom format selectors, added in yt-dlp 2026.01.29)
+- `--compat-options OPTS`: Compatibility options (e.g., "2025" for 2025 compatibility mode, added in yt-dlp 2026.01.29)
 - `--pot-provider-mode MODE`: PO Token provider mode (http or script)
 - `--pot-provider-url URL`: Custom PO Token provider HTTP server URL (default: http://127.0.0.1:4416)
 - `--pot-provider-script PATH`: Path to PO Token provider script (for script mode)
@@ -100,12 +109,14 @@ Uses `argparse` with `parse_known_args()` to forward unknown arguments directly 
 8. Build download command with appropriate client settings
 9. Add SponsorBlock options (mark/remove categories) if specified
 10. Add chapter embedding if requested
-11. Add rate limiting (sleep interval) if specified
-12. Configure PO Token provider extractor args if custom settings provided
-13. Download video with optimized format selector
-14. Handle SABR streaming and PO Token errors with client fallbacks
-15. Download and convert subtitles to SRT with `--ignore-errors`
-16. Embed metadata and chapters in video file
+11. Add rate limiting (sleep interval, sleep subtitles) if specified
+12. Add format sorting options (format-sort-reset) if specified
+13. Add compatibility options (compat-options) if specified
+14. Configure PO Token provider extractor args if custom settings provided
+15. Download video with optimized format selector
+16. Handle SABR streaming and PO Token errors with client fallbacks
+17. Download and convert subtitles to SRT with `--ignore-errors`
+18. Embed metadata and chapters in video file
 
 ### Format Selection Logic
 1. **Premium Detection**: Automatically detects and uses YouTube Premium formats (highest resolution available)
@@ -122,11 +133,13 @@ Uses `argparse` with `parse_known_args()` to forward unknown arguments directly 
   - Automatically configures extractor args for custom setups
 - Detects SABR streaming errors ("web client https formats require a GVS PO Token")
 - Detects PO Token errors and recommends plugin installation or mweb client
-- Automatically tries fallback clients: android, tv, tv_downgraded, mweb, web_music, android_music
+- Automatically tries fallback clients: android, tv, tv_downgraded, mweb, web_embedded, web_music, android_music
 - Can enable SABR format support with `--enable-sabr` flag
 - Prevents infinite recursion with fallback attempt limits
+- **tv**: Default player JS variant as of yt-dlp 2026.02.04, but may require login for some users (A/B test)
 - **tv_downgraded**: Used by default for logged-in accounts, prevents SABR format issues
-- **mweb**: Alternative for PO Token-related errors
+- **mweb**: Recommended for PO Token-related errors
+- **web_embedded**: New fallback option added in yt-dlp 2026.01.31
 
 ### SponsorBlock Integration
 - Mark sponsor segments, intros, outros, hooks, and other categories as chapters
@@ -150,3 +163,28 @@ Uses `argparse` with `parse_known_args()` to forward unknown arguments directly 
 - File operations use pathlib for cross-platform compatibility
 - Browser cookie extraction validation for macOS, Linux paths
 - Recursive download methods handle client fallbacks safely
+
+## Recent yt-dlp Updates (2026)
+
+This wrapper has been updated to align with recent yt-dlp releases:
+
+### yt-dlp 2026.02.04
+- **YouTube defaults to 'tv' player JS variant** - The wrapper now documents this default behavior
+- Note: TV client may require authentication for some users (A/B testing)
+
+### yt-dlp 2026.01.31
+- **Removed broken clients**: `ios_downgraded` and `tv_embedded` removed from yt-dlp (non-functional)
+- **Added `web_embedded` fallback**: New client option for android_vr fallback, now supported by wrapper
+- **Firefox 147+ cookie support**: Fixed `--cookies-from-browser` for new Firefox installs
+
+### yt-dlp 2026.01.29
+- **New `--format-sort-reset` option**: Wrapper now supports resetting format sorting preferences
+- **New `--compat-options` parameter**: Wrapper now supports compatibility modes (e.g., "2025")
+- **Enhanced `--sleep-subtitles`**: Now accepts float values for finer rate limiting control (wrapper updated)
+- **Improved n-challenge solving**: Better YouTube manifest format handling
+- **Enhanced comment support**: Improved comment subthread extraction
+
+### Compatibility Notes
+- Wrapper requires **yt-dlp 2025.11.12+** for full YouTube support (JavaScript runtime requirement)
+- All wrapper features tested with yt-dlp 2026.02.04
+- Backward compatible with yt-dlp 2025.11.12+ (some newer options may not work with older versions)

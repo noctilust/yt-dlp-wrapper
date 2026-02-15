@@ -33,9 +33,10 @@ DEFAULT_FORMAT_SELECTOR = (
 YOUTUBE_CLIENTS = [
     'web',       # Web client (May use SABR streaming if enabled for your region/account)
     'android',   # Android client (Often still provides traditional formats)
-    'tv',        # TV client (Often still provides traditional formats)
+    'tv',        # TV client (Often still provides traditional formats, may require login as of Jan 2026)
     'tv_downgraded',  # TV client with downgraded version (prevents SABR on logged-in accounts)
     'mweb',      # Mobile web client (recommended with PO Token for problematic videos)
+    'web_embedded',  # Web embedded client (fallback for android_vr, added in yt-dlp 2026.01.31)
     'web_music', # Music web client
     'android_music'  # Music android client
 ]
@@ -320,6 +321,7 @@ class VideoDownloader:
                       sponsorblock_remove: Optional[str] = None,
                       embed_chapters: bool = False,
                       sleep_interval: Optional[int] = None,
+                      sleep_subtitles: Optional[float] = None,
                       pot_provider_mode: Optional[str] = None,
                       pot_provider_url: Optional[str] = None,
                       pot_provider_script: Optional[str] = None) -> bool:
@@ -388,6 +390,11 @@ class VideoDownloader:
         if sleep_interval:
             base_cmd.extend(['--sleep-interval', str(sleep_interval)])
             logger.info(f"Rate limiting: {sleep_interval} seconds between downloads")
+
+        # Add sleep subtitles for subtitle download rate limiting
+        if sleep_subtitles:
+            base_cmd.extend(['--sleep-subtitles', str(sleep_subtitles)])
+            logger.info(f"Subtitle rate limiting: {sleep_subtitles} seconds between subtitle downloads")
         
         # Add YouTube client option if specified and it's a YouTube URL
         if platform == 'youtube':
@@ -514,6 +521,7 @@ class VideoDownloader:
                         sponsorblock_remove=sponsorblock_remove,
                         embed_chapters=embed_chapters,
                         sleep_interval=sleep_interval,
+                        sleep_subtitles=sleep_subtitles,
                         pot_provider_mode=pot_provider_mode,
                         pot_provider_url=pot_provider_url,
                         pot_provider_script=pot_provider_script
@@ -536,6 +544,7 @@ class VideoDownloader:
                         sponsorblock_remove=sponsorblock_remove,
                         embed_chapters=embed_chapters,
                         sleep_interval=sleep_interval,
+                        sleep_subtitles=sleep_subtitles,
                         pot_provider_mode=pot_provider_mode,
                         pot_provider_url=pot_provider_url,
                         pot_provider_script=pot_provider_script
@@ -587,6 +596,12 @@ Examples:
                        help='Embed chapter markers in video file')
     parser.add_argument('--sleep-interval', type=int, metavar='SECONDS',
                        help='Sleep interval between downloads (recommended: 5-10 seconds)')
+    parser.add_argument('--sleep-subtitles', type=float, metavar='SECONDS',
+                       help='Sleep interval between subtitle downloads (accepts decimal values)')
+    parser.add_argument('--format-sort-reset', action='store_true',
+                       help='Reset format sorting preferences (useful with custom format selectors)')
+    parser.add_argument('--compat-options', metavar='OPTS',
+                       help='Compatibility options (e.g., "2025" for 2025 compatibility mode)')
     parser.add_argument('--pot-provider-mode', choices=['http', 'script'],
                        help='PO Token provider mode: http (default, requires server) or script (slower but no server)')
     parser.add_argument('--pot-provider-url', metavar='URL',
@@ -596,9 +611,17 @@ Examples:
 
     # Parse known and unknown args to allow passing through to yt-dlp
     args, extra_args = parser.parse_known_args()
-    
+
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    # Add format-sort-reset to extra_args if specified
+    if args.format_sort_reset:
+        extra_args.append('--format-sort-reset')
+
+    # Add compat-options to extra_args if specified
+    if args.compat_options:
+        extra_args.extend(['--compat-options', args.compat_options])
     
     try:
         downloader = VideoDownloader(cookies_browser=args.browser)
@@ -614,6 +637,7 @@ Examples:
             sponsorblock_remove=args.sponsorblock_remove,
             embed_chapters=args.embed_chapters,
             sleep_interval=args.sleep_interval,
+            sleep_subtitles=args.sleep_subtitles,
             pot_provider_mode=args.pot_provider_mode,
             pot_provider_url=args.pot_provider_url,
             pot_provider_script=args.pot_provider_script
