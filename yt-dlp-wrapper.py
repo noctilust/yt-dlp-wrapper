@@ -60,7 +60,41 @@ class YtDlpWrapperError(Exception):
 class VideoDownloader:
     """Main class for handling video downloads with yt-dlp."""
     
-    def __init__(self, cookies_browser: str = 'firefox'):
+    BROWSER_FALLBACK_ORDER = ['chrome_beta', 'chrome', 'firefox', 'safari']
+    BROWSER_PATHS = {
+        'firefox': [
+            '/Applications/Firefox.app',
+            '~/.mozilla/firefox',
+            '/usr/bin/firefox'
+        ],
+        'chrome': [
+            '/Applications/Google Chrome.app',
+            '~/Library/Application Support/Google/Chrome',
+            '~/.config/google-chrome'
+        ],
+        'chrome_beta': [
+            '/Applications/Google Chrome Beta.app',
+            '~/Library/Application Support/Google/Chrome Beta',
+            '~/.config/google-chrome-beta'
+        ],
+        'safari': [
+            '/Applications/Safari.app'
+        ]
+    }
+    # Maps wrapper browser names to yt-dlp --cookies-from-browser values.
+    # Chrome Beta/Dev/Canary use "chrome" as the browser name but need an
+    # explicit profile path since yt-dlp only knows about the stable channel.
+    BROWSER_YT_DLP_MAP = {
+        'firefox': 'firefox',
+        'chrome': 'chrome',
+        'chrome_beta': {
+            'darwin': 'chrome:~/Library/Application Support/Google/Chrome Beta/Default',
+            'linux': 'chrome:~/.config/google-chrome-beta/Default',
+        },
+        'safari': 'safari',
+    }
+
+    def __init__(self, cookies_browser: str = 'chrome_beta'):
         self.cookies_browser = cookies_browser
         self._validate_dependencies()
     
@@ -78,19 +112,38 @@ class VideoDownloader:
                 "yt-dlp not found. Install with: uv pip install -U yt-dlp"
             )
         
-        # Check if browser is available for cookie extraction
-        browser_paths = {
-            'firefox': [
-                '/Applications/Firefox.app',
-                '~/.mozilla/firefox',
-                '/usr/bin/firefox'
-            ]
-        }
-        
-        if self.cookies_browser in browser_paths:
-            paths = browser_paths[self.cookies_browser]
-            if not any(Path(p).expanduser().exists() for p in paths):
-                logger.warning(f"{self.cookies_browser} not found. Downloads may fail for authenticated content.")
+        # Check if browser is available for cookie extraction, with failover
+        self.cookies_browser = self._resolve_browser(self.cookies_browser)
+
+    def _is_browser_available(self, browser: str) -> bool:
+        """Check if a browser is installed by looking for known paths."""
+        paths = self.BROWSER_PATHS.get(browser, [])
+        return any(Path(p).expanduser().exists() for p in paths)
+
+    def _get_ytdlp_browser_arg(self, browser: str) -> str:
+        """Get the yt-dlp --cookies-from-browser value for a wrapper browser name."""
+        mapping = self.BROWSER_YT_DLP_MAP.get(browser, browser)
+        if isinstance(mapping, dict):
+            platform = 'darwin' if sys.platform == 'darwin' else 'linux'
+            return mapping.get(platform, browser)
+        return mapping
+
+    def _resolve_browser(self, preferred: str) -> str:
+        """Resolve the browser to use, falling back through the list if needed."""
+        if self._is_browser_available(preferred):
+            self.cookies_browser_arg = self._get_ytdlp_browser_arg(preferred)
+            return preferred
+
+        logger.warning(f"{preferred} not found, trying fallback browsers...")
+        for browser in self.BROWSER_FALLBACK_ORDER:
+            if browser != preferred and self._is_browser_available(browser):
+                logger.info(f"Using {browser} for cookie extraction")
+                self.cookies_browser_arg = self._get_ytdlp_browser_arg(browser)
+                return browser
+
+        logger.warning("No supported browser found. Downloads may fail for authenticated content.")
+        self.cookies_browser_arg = self._get_ytdlp_browser_arg(preferred)
+        return preferred
 
     def _check_javascript_runtime(self) -> Optional[str]:
         """Check for available JavaScript runtime for YouTube downloads."""
@@ -227,7 +280,7 @@ class VideoDownloader:
     
     def get_video_info(self, url: str) -> Dict[str, Any]:
         """Get video metadata as JSON."""
-        cmd = f'yt-dlp --cookies-from-browser {self.cookies_browser} -j "{url}"'
+        cmd = f'yt-dlp --cookies-from-browser "{self.cookies_browser_arg}" -j "{url}"'
         success, output = self._run_command(cmd)
         
         if not success or not output:
@@ -277,7 +330,7 @@ class VideoDownloader:
     def check_premium_formats(self, url: str) -> Optional[str]:
         """Check if any Premium formats are available for this video."""
         logger.info("Checking for Premium formats...")
-        cmd = f'yt-dlp --cookies-from-browser {self.cookies_browser} -F "{url}"'
+        cmd = f'yt-dlp --cookies-from-browser "{self.cookies_browser_arg}" -F "{url}"'
         success, output = self._run_command(cmd)
         
         if not success or not output:
@@ -362,7 +415,7 @@ class VideoDownloader:
         # Build command
         base_cmd = [
             'yt-dlp',
-            '--cookies-from-browser', self.cookies_browser,
+            '--cookies-from-browser', self.cookies_browser_arg,
             '-f', format_selector,
             '--write-auto-sub',
             '--sub-lang', 'en.*',
@@ -574,9 +627,9 @@ Examples:
     parser.add_argument('url', help='URL to download')
     parser.add_argument('--format', '-f', 
                        help='Custom format selector (overrides default)')
-    parser.add_argument('--browser', '-b', default='firefox',
-                       choices=['firefox', 'chrome', 'safari'],
-                       help='Browser to extract cookies from (default: firefox)')
+    parser.add_argument('--browser', '-b', default='chrome_beta',
+                       choices=['firefox', 'chrome', 'chrome_beta', 'safari'],
+                       help='Browser to extract cookies from (default: chrome_beta)')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Enable verbose logging')
     parser.add_argument('--youtube-client', '-y', 

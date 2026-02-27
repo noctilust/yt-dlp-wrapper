@@ -17,7 +17,7 @@ This is a Python wrapper script for [yt-dlp](https://github.com/yt-dlp/yt-dlp) t
 - **PO Token provider integration**: Automatic detection and integration with bgutil-ytdlp-pot-provider plugin for bypassing YouTube bot detection
 - **SponsorBlock integration**: Mark or remove sponsor segments, intros, outros, hooks, and other video sections
 - **JavaScript runtime validation**: Checks for Deno/Node.js for YouTube downloads (required as of yt-dlp 2025.11.12)
-- **Cookie extraction**: Supports Firefox, Chrome, Safari browsers for authenticated downloads
+- **Cookie extraction**: Supports Chrome Beta, Chrome, Firefox, Safari browsers with automatic failover for authenticated downloads
 - **Comprehensive error handling**: Timeout protection, client fallbacks, PO Token detection, and graceful degradation
 - **Output organization**: Creates dated folders in `~/Downloads/YYYY.MM.DD - <Video Title>/`
 
@@ -28,13 +28,16 @@ This is a Python wrapper script for [yt-dlp](https://github.com/yt-dlp/yt-dlp) t
   - **Note**: `tv` client may require login for some users (A/B testing as of Jan 2026)
   - **New**: `web_embedded` added in yt-dlp 2026.01.31 as fallback for android_vr
 - `SUPPORTED_PLATFORMS`: Platform detection mapping for YouTube, X/Twitter
+- `BROWSER_FALLBACK_ORDER`: Browser failover order (chrome_beta → chrome → firefox → safari)
+- `BROWSER_PATHS`: Platform-aware paths for detecting installed browsers
+- `BROWSER_YT_DLP_MAP`: Maps wrapper browser names to yt-dlp `--cookies-from-browser` values (Chrome Beta uses `chrome:<profile_path>` syntax since yt-dlp doesn't natively support non-stable Chrome channels)
 
 ## Common Development Commands
 
 ### Running the Script
 ```bash
 python yt-dlp-wrapper.py "https://www.youtube.com/watch?v=VIDEO_ID"
-python yt-dlp-wrapper.py "URL" --browser chrome --format "best[height<=1080]" --verbose
+python yt-dlp-wrapper.py "URL" --browser chrome_beta --format "best[height<=1080]" --verbose
 python yt-dlp-wrapper.py "URL" --youtube-client android --enable-sabr
 python yt-dlp-wrapper.py "URL" --no-premium --no-fallback
 python yt-dlp-wrapper.py "URL" --sponsorblock-mark all --embed-chapters
@@ -49,7 +52,7 @@ python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"  # Cus
 
 ### Available Command Line Options
 - `--format, -f`: Custom format selector (overrides default)
-- `--browser, -b`: Browser for cookie extraction (firefox, chrome, safari)
+- `--browser, -b`: Browser for cookie extraction (chrome_beta, chrome, firefox, safari; default: chrome_beta). Automatically falls back to other browsers if selected browser is not found (fallback order: chrome_beta → chrome → firefox → safari)
 - `--verbose, -v`: Enable debug logging
 - `--youtube-client, -y`: Specific YouTube client (web, android, tv, tv_downgraded, mweb, web_embedded, web_music, android_music)
 - `--enable-sabr`: Enable YouTube SABR streaming format support
@@ -73,7 +76,7 @@ python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"  # Cus
   - **Deno** (recommended, enabled by default): `brew install deno` (macOS) or see https://deno.land/
   - Alternative runtimes: Node.js 20+, Bun 1.0.31+, or QuickJS 2023-12-9+
   - Without a runtime, YouTube downloads will have severely limited format availability
-- **Browser** (Firefox, Chrome, or Safari) for cookie extraction and authenticated content
+- **Browser** (Chrome Beta, Chrome, Firefox, or Safari) for cookie extraction and authenticated content. Chrome Beta is the default; the script automatically falls back to other installed browsers if the selected one is not found
 - **PO Token provider plugin** (optional but recommended for YouTube):
   - Install plugin: `uv pip install bgutil-ytdlp-pot-provider`
   - Start HTTP server with Docker: `docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider`
@@ -95,7 +98,8 @@ Uses `argparse` with `parse_known_args()` to forward unknown arguments directly 
 - Timeout protection: 5 minutes for metadata, 1 hour for downloads
 - YouTube client fallback system for SABR streaming issues
 - PO Token error detection with helpful guidance (suggests mweb client)
-- Graceful degradation when browser cookies unavailable
+- Browser cookie failover: automatically tries chrome_beta → chrome → firefox → safari
+- Graceful degradation when no browser cookies available
 - Proper exit codes (0 for success, 1 for failure)
 
 ### Video Processing Flow
@@ -161,7 +165,8 @@ Uses `argparse` with `parse_known_args()` to forward unknown arguments directly 
 - No unit tests - rely on manual testing with real URLs
 - Logging uses Python's standard logging module (INFO level default, DEBUG with --verbose)
 - File operations use pathlib for cross-platform compatibility
-- Browser cookie extraction validation for macOS, Linux paths
+- Browser cookie extraction with failover and platform-aware path validation (macOS, Linux)
+- Chrome Beta/Dev/Canary mapped to yt-dlp's `chrome` browser with explicit profile paths (yt-dlp only natively supports stable Chrome)
 - Recursive download methods handle client fallbacks safely
 
 ## Recent yt-dlp Updates (2026)
