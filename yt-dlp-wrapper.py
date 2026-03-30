@@ -36,7 +36,10 @@ YOUTUBE_CLIENTS = [
     'tv',        # TV client (Often still provides traditional formats, may require login as of Jan 2026)
     'tv_downgraded',  # TV client with downgraded version (prevents SABR on logged-in accounts)
     'mweb',      # Mobile web client (recommended with PO Token for problematic videos)
-    'web_embedded',  # Web embedded client (fallback for android_vr, added in yt-dlp 2026.01.31)
+    'web_embedded',  # Web embedded client (added 2026.01.31, fixed in 2026.03.13)
+    'web_safari',    # Safari web client (added in yt-dlp 2026.03.13)
+    'web_creator',   # Creator web client (added in yt-dlp 2026.03.13)
+    'android_vr',    # Android VR client (fixed in yt-dlp 2026.03.13)
     'web_music', # Music web client
     'android_music'  # Music android client
 ]

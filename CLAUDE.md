@@ -23,10 +23,11 @@ This is a Python wrapper script for [yt-dlp](https://github.com/yt-dlp/yt-dlp) t
 
 ### Configuration Constants
 - `DEFAULT_FORMAT_SELECTOR`: Complex format selector string prioritizing resolution and codec
-- `YOUTUBE_CLIENTS`: Available YouTube client options (web, android, tv, tv_downgraded, mweb, web_embedded, web_music, android_music)
+- `YOUTUBE_CLIENTS`: Available YouTube client options (web, android, tv, tv_downgraded, mweb, web_embedded, web_safari, web_creator, android_vr, web_music, android_music)
   - **Note**: `ios_downgraded` and `tv_embedded` were removed in yt-dlp 2026.01.31 (non-functional)
   - **Note**: `tv` client may require login for some users (A/B testing as of Jan 2026)
-  - **New**: `web_embedded` added in yt-dlp 2026.01.31 as fallback for android_vr
+  - **Note**: `web_embedded` added in yt-dlp 2026.01.31, fixed in 2026.03.13
+  - **New**: `web_safari`, `web_creator`, and `android_vr` (fixed) added in yt-dlp 2026.03.13
 - `SUPPORTED_PLATFORMS`: Platform detection mapping for YouTube, X/Twitter
 - `BROWSER_FALLBACK_ORDER`: Browser failover order (chrome_beta → chrome → firefox → safari)
 - `BROWSER_PATHS`: Platform-aware paths for detecting installed browsers
@@ -54,7 +55,7 @@ python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"  # Cus
 - `--format, -f`: Custom format selector (overrides default)
 - `--browser, -b`: Browser for cookie extraction (chrome_beta, chrome, firefox, safari; default: chrome_beta). Automatically falls back to other browsers if selected browser is not found (fallback order: chrome_beta → chrome → firefox → safari)
 - `--verbose, -v`: Enable debug logging
-- `--youtube-client, -y`: Specific YouTube client (web, android, tv, tv_downgraded, mweb, web_embedded, web_music, android_music)
+- `--youtube-client, -y`: Specific YouTube client (web, android, tv, tv_downgraded, mweb, web_embedded, web_safari, web_creator, android_vr, web_music, android_music)
 - `--enable-sabr`: Enable YouTube SABR streaming format support
 - `--no-fallback`: Disable automatic fallback to other YouTube clients
 - `--no-premium`: Disable automatic Premium format selection
@@ -137,13 +138,13 @@ Uses `argparse` with `parse_known_args()` to forward unknown arguments directly 
   - Automatically configures extractor args for custom setups
 - Detects SABR streaming errors ("web client https formats require a GVS PO Token")
 - Detects PO Token errors and recommends plugin installation or mweb client
-- Automatically tries fallback clients: android, tv, tv_downgraded, mweb, web_embedded, web_music, android_music
+- Automatically tries fallback clients: android, tv, tv_downgraded, mweb, web_embedded, web_safari, web_creator, android_vr, web_music, android_music
 - Can enable SABR format support with `--enable-sabr` flag
 - Prevents infinite recursion with fallback attempt limits
 - **tv**: Default player JS variant as of yt-dlp 2026.02.04, but may require login for some users (A/B test)
 - **tv_downgraded**: Used by default for logged-in accounts, prevents SABR format issues
 - **mweb**: Recommended for PO Token-related errors
-- **web_embedded**: New fallback option added in yt-dlp 2026.01.31
+- **web_embedded**: Added in yt-dlp 2026.01.31, fixed and functional as of 2026.03.13
 
 ### SponsorBlock Integration
 - Mark sponsor segments, intros, outros, hooks, and other categories as chapters
@@ -173,6 +174,24 @@ Uses `argparse` with `parse_known_args()` to forward unknown arguments directly 
 
 This wrapper has been updated to align with recent yt-dlp releases:
 
+### yt-dlp 2026.03.17
+- **YouTube `webpage_client` extractor-arg always respected** - Internal yt-dlp fix
+- **Fixed `--live-from-start` support** - Internal yt-dlp fix
+
+### yt-dlp 2026.03.13
+- **Fixed `android_vr` player client** - Re-added `android_vr` to wrapper's `YOUTUBE_CLIENTS`
+- **Fixed `web_embedded` player client** - Was broken since added in 2026.01.31, now functional
+- **Added `web_safari` and `web_creator` clients** - New player client configs, added to wrapper's `YOUTUBE_CLIENTS`
+
+### yt-dlp 2026.03.03
+- **YouTube skips webpage player response by default** - Internal yt-dlp optimization, no wrapper changes needed
+- **Pinned player JS variant `9f4cc5e4`** - Internal yt-dlp fix to force a specific known-good player variant
+
+### yt-dlp 2026.02.21
+- **Security CVE-2026-26331**: `--netrc-cmd` command injection fix (wrapper does not use this option)
+- **Cookie handling**: Cookies with control characters now ignored
+- **YouTube**: More known player JS variants added; live adaptive `incomplete` formats extracted
+
 ### yt-dlp 2026.02.04
 - **YouTube defaults to 'tv' player JS variant** - The wrapper now documents this default behavior
 - Note: TV client may require authentication for some users (A/B testing)
@@ -191,5 +210,5 @@ This wrapper has been updated to align with recent yt-dlp releases:
 
 ### Compatibility Notes
 - Wrapper requires **yt-dlp 2025.11.12+** for full YouTube support (JavaScript runtime requirement)
-- All wrapper features tested with yt-dlp 2026.02.04
+- All wrapper features tested with yt-dlp 2026.03.17
 - Backward compatible with yt-dlp 2025.11.12+ (some newer options may not work with older versions)
