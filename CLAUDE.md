@@ -29,7 +29,7 @@ This is a Python wrapper script for [yt-dlp](https://github.com/yt-dlp/yt-dlp) t
   - **Note**: `web_embedded` added in yt-dlp 2026.01.31, fixed in 2026.03.13
   - **New**: `web_safari`, `web_creator`, and `android_vr` (fixed) added in yt-dlp 2026.03.13
 - `SUPPORTED_PLATFORMS`: Platform detection mapping for YouTube, X/Twitter
-- `BROWSER_FALLBACK_ORDER`: Browser failover order (chrome_beta → chrome → firefox → safari)
+- `BROWSER_FALLBACK_ORDER`: Browser failover order (chrome → chrome_beta → firefox → safari)
 - `BROWSER_PATHS`: Platform-aware paths for detecting installed browsers
 - `BROWSER_YT_DLP_MAP`: Maps wrapper browser names to yt-dlp `--cookies-from-browser` values (Chrome Beta uses `chrome:<profile_path>` syntax since yt-dlp doesn't natively support non-stable Chrome channels)
 
@@ -53,7 +53,7 @@ python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"  # Cus
 
 ### Available Command Line Options
 - `--format, -f`: Custom format selector (overrides default)
-- `--browser, -b`: Browser for cookie extraction (chrome_beta, chrome, firefox, safari; default: chrome_beta). Automatically falls back to other browsers if selected browser is not found (fallback order: chrome_beta → chrome → firefox → safari)
+- `--browser, -b`: Browser for cookie extraction (chrome_beta, chrome, firefox, safari; default: chrome). Automatically falls back to other browsers if selected browser is not found (fallback order: chrome → chrome_beta → firefox → safari)
 - `--verbose, -v`: Enable debug logging
 - `--youtube-client, -y`: Specific YouTube client (web, android, tv, tv_downgraded, mweb, web_embedded, web_safari, web_creator, android_vr, web_music, android_music)
 - `--enable-sabr`: Enable YouTube SABR streaming format support
@@ -99,7 +99,7 @@ Uses `argparse` with `parse_known_args()` to forward unknown arguments directly 
 - Timeout protection: 5 minutes for metadata, 1 hour for downloads
 - YouTube client fallback system for SABR streaming issues
 - PO Token error detection with helpful guidance (suggests mweb client)
-- Browser cookie failover: automatically tries chrome_beta → chrome → firefox → safari
+- Browser cookie failover: automatically tries chrome → chrome_beta → firefox → safari
 - Graceful degradation when no browser cookies available
 - Proper exit codes (0 for success, 1 for failure)
 

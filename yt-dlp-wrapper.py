@@ -63,7 +63,7 @@ class YtDlpWrapperError(Exception):
 class VideoDownloader:
     """Main class for handling video downloads with yt-dlp."""
     
-    BROWSER_FALLBACK_ORDER = ['chrome_beta', 'chrome', 'firefox', 'safari']
+    BROWSER_FALLBACK_ORDER = ['chrome', 'chrome_beta', 'firefox', 'safari']
     BROWSER_PATHS = {
         'firefox': [
             '/Applications/Firefox.app',
@@ -97,7 +97,7 @@ class VideoDownloader:
         'safari': 'safari',
     }
 
-    def __init__(self, cookies_browser: str = 'chrome_beta'):
+    def __init__(self, cookies_browser: str = 'chrome'):
         self.cookies_browser = cookies_browser
         self._validate_dependencies()
     
@@ -630,9 +630,9 @@ Examples:
     parser.add_argument('url', help='URL to download')
     parser.add_argument('--format', '-f', 
                        help='Custom format selector (overrides default)')
-    parser.add_argument('--browser', '-b', default='chrome_beta',
+    parser.add_argument('--browser', '-b', default='chrome',
                        choices=['firefox', 'chrome', 'chrome_beta', 'safari'],
-                       help='Browser to extract cookies from (default: chrome_beta)')
+                       help='Browser to extract cookies from (default: chrome)')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Enable verbose logging')
     parser.add_argument('--youtube-client', '-y', 
