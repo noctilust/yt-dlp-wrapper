@@ -1,8 +1,30 @@
-# yt-dlp-wrapper Improvements - 2025
+# yt-dlp-wrapper Improvements - 2025-2026
 
 ## Summary
 
 This document summarizes all improvements made to the yt-dlp-wrapper based on the latest yt-dlp changes (as of 2025.11.12) and best practices research.
+
+## 2026.05.08 — Maintenance Updates
+
+### 1. ffmpeg Validation
+- **Issue**: ffmpeg required for subtitle conversion (SRT) and video/audio merging, but missing silently
+- **Solution**: Added `shutil.which('ffmpeg')` check in `_validate_dependencies()` with user-friendly warning
+- **Impact**: Users now know upfront if ffmpeg is missing, rather than cryptic yt-dlp failures mid-download
+- **Code**: Warning message with `brew install ffmpeg` remediation
+
+### 2. yt-dlp Version Check
+- **Issue**: Wrapper validated `yt-dlp` was in PATH but never checked version; old versions could cause unexpected behavior
+- **Solution**: Added version parse check using `packaging.version.Version`, warns if below `2025.11.12`
+- **Impact**: Users with outdated yt-dlp get actionable upgrade guidance
+- **Code**: `subprocess.run(['yt-dlp', '--version'])` with `packaging.version.Version` comparison
+
+### 3. `_validate_pot_provider` Return Type Cleaned Up
+- **Issue**: Method signature declared `-> Optional[str]` but always returned `None`; return value was discarded at call site
+- **Solution**: Changed to `-> None`, removed all redundant `return None` statements; docstring updated to clarify it logs and doesn't return
+- **Impact**: No functional change — cleaner type signature, avoids misleading return value
+- **Code**: Changed signature and pruned dead returns
+
+---
 
 ## Critical Updates (Must Do) ✅
 

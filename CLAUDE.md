@@ -92,6 +92,13 @@ No formal testing framework is configured. Test manually with various video URLs
 ### Command Line Interface
 Uses `argparse` with `parse_known_args()` to forward unknown arguments directly to yt-dlp, enabling pass-through of additional yt-dlp options.
 
+### Dependency Validation
+The script performs three dependency checks at startup (in `_validate_dependencies()`):
+1. **yt-dlp in PATH** — fails fast if not found
+2. **yt-dlp version >= 2025.11.12** — warns if below minimum (needed for JS runtime support)
+3. **ffmpeg in PATH** — warns if missing (required for subtitle conversion and video merging)
+4. **Browser cookie availability** — auto-falls back to next browser if preferred is not installed
+
 ### Error Handling Strategy
 - Custom `YtDlpWrapperError` exception for wrapper-specific errors
 - Python version validation (3.10+ required)

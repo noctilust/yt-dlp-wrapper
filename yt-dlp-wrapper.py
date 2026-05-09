@@ -114,7 +114,33 @@ class VideoDownloader:
             raise YtDlpWrapperError(
                 "yt-dlp not found. Install with: uv pip install -U yt-dlp"
             )
-        
+
+        # Check yt-dlp version (2025.11.12 minimum for JS runtime support)
+        version_cmd = subprocess.run(
+            ['yt-dlp', '--version'],
+            capture_output=True, text=True, timeout=10
+        )
+        if version_cmd.returncode == 0:
+            version_str = version_cmd.stdout.strip()
+            try:
+                from packaging.version import Version
+                min_version = Version('2025.11.12')
+                current_version = Version(version_str)
+                if current_version < min_version:
+                    logger.warning(
+                        f"yt-dlp {version_str} detected; 2025.11.12+ recommended for full YouTube support. "
+                        "Upgrade with: uv pip install -U yt-dlp"
+                    )
+            except Exception:
+                pass  # Version parsing failed, skip check
+
+        # Check ffmpeg (required for subtitle conversion and video merging)
+        if not shutil.which('ffmpeg'):
+            logger.warning(
+                "⚠️  ffmpeg not found. Subtitles will not be converted to SRT, "
+                "and video/audio merging will fail. Install with: brew install ffmpeg"
+            )
+
         # Check if browser is available for cookie extraction, with failover
         self.cookies_browser = self._resolve_browser(self.cookies_browser)
 
@@ -203,13 +229,14 @@ class VideoDownloader:
             logger.debug(f"PO Token HTTP server check failed: {e}")
             return False
 
-    def _validate_pot_provider(self, url: str, pot_provider_mode: Optional[str] = None) -> Optional[str]:
+    def _validate_pot_provider(self, url: str, pot_provider_mode: Optional[str] = None) -> None:
         """
         Validate PO Token provider setup for YouTube downloads.
-        Returns extractor args string if provider is configured, None otherwise.
+        Logs informational messages and warnings; does not return any value.
+        Actual extractor args are built inline in download_video() from pot_provider_url/script.
         """
         if self.detect_platform(url) != 'youtube':
-            return None
+            return
 
         # Check if plugin is installed
         plugin_installed = self._check_pot_plugin_installed()
@@ -220,19 +247,18 @@ class VideoDownloader:
                 "   uv pip install bgutil-ytdlp-pot-provider\n"
                 "   See: https://github.com/Brainicism/bgutil-ytdlp-pot-provider"
             )
-            return None
+            return
 
         # Plugin is installed, check which mode to use
         if pot_provider_mode == 'script':
             logger.info("Using PO Token provider in script mode")
-            return None  # Script mode uses default plugin behavior
+            return  # Script mode uses default plugin behavior
 
         # Default to HTTP server mode
         server_running = self._check_pot_server_running()
 
         if server_running:
             logger.info("✓ PO Token provider HTTP server detected and ready")
-            return None  # HTTP server uses default plugin behavior
         else:
             logger.warning(
                 "⚠️  PO Token provider plugin installed but HTTP server not detected.\n"
@@ -241,7 +267,6 @@ class VideoDownloader:
                 "   Or use Node.js (see: https://github.com/Brainicism/bgutil-ytdlp-pot-provider)\n"
                 "   Alternatively, use --pot-provider-mode script (slower but no server needed)"
             )
-            return None
 
     def _validate_youtube_requirements(self, url: str) -> None:
         """Validate YouTube-specific requirements like JavaScript runtime."""
