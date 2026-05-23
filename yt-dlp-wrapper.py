@@ -9,7 +9,6 @@ performance, and maintainability.
 import argparse
 import json
 import logging
-import os
 import re
 import shutil
 import socket
@@ -17,7 +16,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Union
+from typing import Dict, List, Optional, Tuple, Any
 
 
 # Configuration constants
@@ -63,7 +62,7 @@ class YtDlpWrapperError(Exception):
 class VideoDownloader:
     """Main class for handling video downloads with yt-dlp."""
     
-    BROWSER_FALLBACK_ORDER = ['chrome', 'chrome_beta', 'firefox', 'safari']
+    BROWSER_FALLBACK_ORDER = ['chrome', 'firefox', 'safari']
     BROWSER_PATHS = {
         'firefox': [
             '/Applications/Firefox.app',
@@ -75,30 +74,19 @@ class VideoDownloader:
             '~/Library/Application Support/Google/Chrome',
             '~/.config/google-chrome'
         ],
-        'chrome_beta': [
-            '/Applications/Google Chrome Beta.app',
-            '~/Library/Application Support/Google/Chrome Beta',
-            '~/.config/google-chrome-beta'
-        ],
         'safari': [
             '/Applications/Safari.app'
         ]
     }
-    # Maps wrapper browser names to yt-dlp --cookies-from-browser values.
-    # Chrome Beta/Dev/Canary use "chrome" as the browser name but need an
-    # explicit profile path since yt-dlp only knows about the stable channel.
     BROWSER_YT_DLP_MAP = {
         'firefox': 'firefox',
         'chrome': 'chrome',
-        'chrome_beta': {
-            'darwin': 'chrome:~/Library/Application Support/Google/Chrome Beta/Default',
-            'linux': 'chrome:~/.config/google-chrome-beta/Default',
-        },
         'safari': 'safari',
     }
 
     def __init__(self, cookies_browser: str = 'chrome'):
         self.cookies_browser = cookies_browser
+        self.cookies_browser_arg = self._get_ytdlp_browser_arg(cookies_browser)
         self._validate_dependencies()
     
     def _validate_dependencies(self) -> None:
@@ -210,7 +198,7 @@ class VideoDownloader:
                 logger.debug("PO Token provider plugin is installed")
                 return True
             return False
-        except (subprocess.SubprocessError, Exception) as e:
+        except subprocess.SubprocessError as e:
             logger.debug(f"Could not check PO Token plugin: {e}")
             return False
 
@@ -308,15 +296,16 @@ class VideoDownloader:
     
     def get_video_info(self, url: str) -> Dict[str, Any]:
         """Get video metadata as JSON."""
-        cmd = f'yt-dlp --cookies-from-browser "{self.cookies_browser_arg}" -j "{url}"'
-        success, output = self._run_command(cmd)
-        
-        if not success or not output:
-            logger.warning("Could not retrieve video information")
-            return {}
-        
+        cmd = ['yt-dlp', '--cookies-from-browser', self.cookies_browser_arg, '-j', url]
         try:
-            return json.loads(output)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                logger.warning(f"Could not retrieve video information: {result.stderr}")
+                return {}
+            return json.loads(result.stdout)
+        except subprocess.TimeoutExpired:
+            logger.error("Video info command timed out after 5 minutes")
+            return {}
         except json.JSONDecodeError as e:
             logger.error(f"Could not parse video information: {e}")
             return {}
@@ -358,11 +347,15 @@ class VideoDownloader:
     def check_premium_formats(self, url: str) -> Optional[str]:
         """Check if any Premium formats are available for this video."""
         logger.info("Checking for Premium formats...")
-        cmd = f'yt-dlp --cookies-from-browser "{self.cookies_browser_arg}" -F "{url}"'
-        success, output = self._run_command(cmd)
-        
-        if not success or not output:
-            logger.warning("Could not retrieve format list")
+        cmd = ['yt-dlp', '--cookies-from-browser', self.cookies_browser_arg, '-F', url]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                logger.warning(f"Could not retrieve format list: {result.stderr}")
+                return None
+            output = result.stdout
+        except subprocess.TimeoutExpired:
+            logger.error("Format list command timed out after 5 minutes")
             return None
         
         # Find the best Premium format (highest resolution)
@@ -530,7 +523,7 @@ class VideoDownloader:
         # Execute download
         logger.info("Starting download...")
         try:
-            result = subprocess.run(base_cmd, check=True, timeout=3600)  # 1 hour timeout
+            subprocess.run(base_cmd, check=True, timeout=3600)  # 1 hour timeout
             logger.info("Download completed successfully!")
             return True
         except subprocess.CalledProcessError as e:
@@ -631,7 +624,7 @@ class VideoDownloader:
                         pot_provider_script=pot_provider_script
                     )
             
-            logger.error(f"Download failed with return code {e.returncode}")
+            logger.error(f"Download failed (return code {e.returncode}): {' '.join(base_cmd)}")
             if e.stderr:
                 logger.error(f"Error details: {e.stderr}")
             return False
@@ -656,7 +649,7 @@ Examples:
     parser.add_argument('--format', '-f', 
                        help='Custom format selector (overrides default)')
     parser.add_argument('--browser', '-b', default='chrome',
-                       choices=['firefox', 'chrome', 'chrome_beta', 'safari'],
+                       choices=['firefox', 'chrome', 'safari'],
                        help='Browser to extract cookies from (default: chrome)')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Enable verbose logging')
