@@ -10,13 +10,14 @@ import argparse
 import json
 import logging
 import re
+import shlex
 import shutil
 import socket
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Any
 
 
 # Configuration constants
@@ -273,27 +274,6 @@ class VideoDownloader:
                 "   Alternatively: Node.js 20+, Bun, or QuickJS"
             )
 
-    def _run_command(self, cmd: str, capture_output: bool = True) -> Tuple[bool, str]:
-        """Run a shell command and return success status and output."""
-        try:
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=capture_output,
-                text=True,
-                check=True,
-                timeout=300  # 5 minute timeout
-            )
-            return True, result.stdout
-        except subprocess.TimeoutExpired:
-            logger.error("Command timed out after 5 minutes")
-            return False, ""
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Command failed with return code {e.returncode}")
-            if e.stderr:
-                logger.error(f"Error details: {e.stderr}")
-            return False, e.stderr or ""
-    
     def get_video_info(self, url: str) -> Dict[str, Any]:
         """Get video metadata as JSON."""
         cmd = ['yt-dlp', '--cookies-from-browser', self.cookies_browser_arg, '-j', url]
@@ -624,7 +604,7 @@ class VideoDownloader:
                         pot_provider_script=pot_provider_script
                     )
             
-            logger.error(f"Download failed (return code {e.returncode}): {' '.join(base_cmd)}")
+            logger.error(f"Download failed (return code {e.returncode}): {shlex.join(base_cmd)}")
             if e.stderr:
                 logger.error(f"Error details: {e.stderr}")
             return False

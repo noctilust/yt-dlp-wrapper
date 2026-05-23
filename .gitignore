@@ -1,3 +1,4 @@
 .DS_Store
 .env
-youtube.com_cookies.txt__pycache__/
+youtube.com_cookies.txt
+__pycache__/
