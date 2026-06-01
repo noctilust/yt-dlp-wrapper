@@ -120,8 +120,8 @@ class VideoDownloader:
                         f"yt-dlp {version_str} detected; 2025.11.12+ recommended for full YouTube support. "
                         "Upgrade with: uv pip install -U yt-dlp"
                     )
-            except Exception:
-                pass  # Version parsing failed, skip check
+            except (ImportError, ValueError):
+                pass  # packaging missing or version string unparseable — skip check
 
         # Check ffmpeg (required for subtitle conversion and video merging)
         if not shutil.which('ffmpeg'):
