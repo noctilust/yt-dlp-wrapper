@@ -282,9 +282,10 @@ class VideoDownloader:
     
     def detect_platform(self, url: str) -> str:
         """Detect the platform from the URL."""
-        url_lower = url.lower()
+        from urllib.parse import urlparse
+        hostname = (urlparse(url).hostname or '').lower()
         for platform, domains in SUPPORTED_PLATFORMS.items():
-            if any(domain in url_lower for domain in domains):
+            if any(hostname == domain or hostname.endswith('.' + domain) for domain in domains):
                 return platform
         return 'other'
     

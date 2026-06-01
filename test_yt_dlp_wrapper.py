@@ -203,6 +203,32 @@ class TestDetectPlatform(unittest.TestCase):
             "other",
         )
 
+    def test_subdomain_of_youtube_matches(self):
+        self.assertEqual(
+            make_downloader().detect_platform("https://www.youtube.com/watch?v=abc"),
+            "youtube",
+        )
+
+    def test_youtube_in_path_only_returns_other(self):
+        # 'youtube.com' in the path or query must not match
+        self.assertEqual(
+            make_downloader().detect_platform("https://example.com/?ref=youtube.com"),
+            "other",
+        )
+
+    def test_lookalike_subdomain_returns_other(self):
+        # 'twitter.com.evil.com' must not match 'twitter.com'
+        self.assertEqual(
+            make_downloader().detect_platform("https://twitter.com.evil.com/user"),
+            "other",
+        )
+
+    def test_youtu_be_https_no_subdomain(self):
+        self.assertEqual(
+            make_downloader().detect_platform("https://youtu.be/abc"),
+            "youtube",
+        )
+
 
 class TestDownloadVideoFailFast(unittest.TestCase):
     """Bug #3: empty info must not produce a colliding 'video' folder."""
