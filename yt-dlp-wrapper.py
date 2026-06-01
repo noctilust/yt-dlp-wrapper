@@ -79,15 +79,10 @@ class VideoDownloader:
             '/Applications/Safari.app'
         ]
     }
-    BROWSER_YT_DLP_MAP = {
-        'firefox': 'firefox',
-        'chrome': 'chrome',
-        'safari': 'safari',
-    }
 
     def __init__(self, cookies_browser: str = 'chrome'):
         self.cookies_browser = cookies_browser
-        self.cookies_browser_arg = self._get_ytdlp_browser_arg(cookies_browser)
+        self.cookies_browser_arg = cookies_browser
         self._validate_dependencies()
     
     def _validate_dependencies(self) -> None:
@@ -138,29 +133,21 @@ class VideoDownloader:
         paths = self.BROWSER_PATHS.get(browser, [])
         return any(Path(p).expanduser().exists() for p in paths)
 
-    def _get_ytdlp_browser_arg(self, browser: str) -> str:
-        """Get the yt-dlp --cookies-from-browser value for a wrapper browser name."""
-        mapping = self.BROWSER_YT_DLP_MAP.get(browser, browser)
-        if isinstance(mapping, dict):
-            platform = 'darwin' if sys.platform == 'darwin' else 'linux'
-            return mapping.get(platform, browser)
-        return mapping
-
     def _resolve_browser(self, preferred: str) -> str:
         """Resolve the browser to use, falling back through the list if needed."""
         if self._is_browser_available(preferred):
-            self.cookies_browser_arg = self._get_ytdlp_browser_arg(preferred)
+            self.cookies_browser_arg = preferred
             return preferred
 
         logger.warning(f"{preferred} not found, trying fallback browsers...")
         for browser in self.BROWSER_FALLBACK_ORDER:
             if browser != preferred and self._is_browser_available(browser):
                 logger.info(f"Using {browser} for cookie extraction")
-                self.cookies_browser_arg = self._get_ytdlp_browser_arg(browser)
+                self.cookies_browser_arg = browser
                 return browser
 
         logger.warning("No supported browser found. Downloads may fail for authenticated content.")
-        self.cookies_browser_arg = self._get_ytdlp_browser_arg(preferred)
+        self.cookies_browser_arg = preferred
         return preferred
 
     def _check_javascript_runtime(self) -> Optional[str]:
