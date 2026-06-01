@@ -373,6 +373,18 @@ class TestRunDownloadNoFallbackWhenDisabled(unittest.TestCase):
             self.assertEqual(call_count[0], 1)
 
 
+class TestCheckPotPluginInstalled(unittest.TestCase):
+    def test_installed_plugin_returns_true(self):
+        dl = make_downloader()
+        with mock.patch("importlib.util.find_spec", return_value=object()):
+            self.assertTrue(dl._check_pot_plugin_installed())
+
+    def test_missing_plugin_returns_false(self):
+        dl = make_downloader()
+        with mock.patch("importlib.util.find_spec", return_value=None):
+            self.assertFalse(dl._check_pot_plugin_installed())
+
+
 class TestBuildCommand(unittest.TestCase):
     def test_basic_youtube_command(self):
         dl = make_downloader()

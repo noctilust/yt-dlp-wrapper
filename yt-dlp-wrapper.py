@@ -183,23 +183,13 @@ class VideoDownloader:
     def _check_pot_plugin_installed(self) -> bool:
         """Check if bgutil-ytdlp-pot-provider plugin is installed."""
         try:
-            # Try uv first, fall back to pip if uv is not available
-            uv_cmd = ['uv', 'pip', 'show', 'bgutil-ytdlp-pot-provider']
-            pip_cmd = [sys.executable, '-m', 'pip', 'show', 'bgutil-ytdlp-pot-provider']
-
-            cmd = uv_cmd if shutil.which('uv') else pip_cmd
-
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
+            import importlib.util
+            installed = importlib.util.find_spec("bgutil_ytdlp_pot_provider") is not None
+            if installed:
                 logger.debug("PO Token provider plugin is installed")
-                return True
-            return False
-        except subprocess.SubprocessError as e:
+            return installed
+        except (ImportError, ModuleNotFoundError, ValueError) as e:
+            # find_spec can raise ValueError for names without a parent package
             logger.debug(f"Could not check PO Token plugin: {e}")
             return False
 
