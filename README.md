@@ -170,9 +170,9 @@ python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"
 ### Command-Line Options
 
 - `--format, -f`: Custom format selector (overrides default smart selection)
-- `--browser, -b`: Browser to extract cookies from (default: firefox; options: firefox, chrome, safari)
+- `--browser, -b`: Browser to extract cookies from (default: chrome; options: firefox, chrome, safari)
 - `--verbose, -v`: Enable detailed logging output
-- `--youtube-client, -y`: YouTube client to use (web, android, tv, tv_downgraded, mweb, web_music, android_music)
+- `--youtube-client, -y`: YouTube client to use (web, android, tv, tv_downgraded, mweb, web_embedded, web_safari, web_creator, android_vr, web_music, android_music)
 - `--enable-sabr`: Enable YouTube SABR streaming format support
 - `--no-fallback`: Disable automatic fallback to other YouTube clients
 - `--no-premium`: Disable automatic selection of Premium formats

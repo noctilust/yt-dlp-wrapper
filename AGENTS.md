@@ -23,7 +23,7 @@ No test, lint, typecheck, or format commands exist — manual verification only.
 ## CLI quirks
 
 - Uses `argparse.parse_known_args()`: unrecognized flags pass through to yt-dlp automatically.
-- Default browser is `chrome` (hard-coded in `__init__` and `add_argument` — CLAUDE.md/README.md say `firefox`, they are wrong).
+- Default browser is `chrome` (hard-coded in `__init__` and `add_argument`). README.md was previously wrong on this; now corrected.
 - `--embed-metadata` is **always** on; `--embed-chapters` is opt-in only.
 - `--sponsorblock-mark`/`--sponsorblock-remove` are YouTube-only.
 - Output goes to `~/Downloads/YYYY.MM.DD - <sanitized title>/`.
