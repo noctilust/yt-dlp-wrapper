@@ -7,6 +7,7 @@ performance, and maintainability.
 """
 
 import argparse
+import dataclasses
 import json
 import logging
 import re
@@ -15,6 +16,7 @@ import shutil
 import socket
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -58,6 +60,34 @@ logger = logging.getLogger(__name__)
 class YtDlpWrapperError(Exception):
     """Custom exception for wrapper-specific errors."""
     pass
+
+
+@dataclass
+class DownloadOptions:
+    """All knobs that influence a single download.
+
+    User-facing options (filled in from argparse); platform and output_dir
+    are populated by ``download_video`` before the first call into
+    ``_run_download`` / ``_build_command``.
+    """
+    url: str
+    extra_args: List[str] = field(default_factory=list)
+    format_selector: Optional[str] = None
+    youtube_client: Optional[str] = None
+    try_sabr: bool = False
+    try_fallback_clients: bool = False
+    prefer_premium: bool = True
+    sponsorblock_mark: Optional[str] = None
+    sponsorblock_remove: Optional[str] = None
+    embed_chapters: bool = False
+    sleep_interval: Optional[int] = None
+    sleep_subtitles: Optional[float] = None
+    pot_provider_mode: Optional[str] = None
+    pot_provider_url: Optional[str] = None
+    pot_provider_script: Optional[str] = None
+    # Populated by download_video:
+    platform: Optional[str] = None
+    output_dir: Optional[Path] = None
 
 
 class VideoDownloader:
@@ -351,42 +381,31 @@ class VideoDownloader:
         logger.info(f"Best Premium format found: {best_format_id} with resolution height {best_height}px")
         return f"{best_format_id}+bestaudio/best"
 
-    def download_video(self, url: str, extra_args: Optional[List[str]] = None,
-                      format_selector: Optional[str] = None,
-                      youtube_client: Optional[str] = None,
-                      try_sabr: bool = False,
-                      try_fallback_clients: bool = False,
-                      prefer_premium: bool = True,
-                      sponsorblock_mark: Optional[str] = None,
-                      sponsorblock_remove: Optional[str] = None,
-                      embed_chapters: bool = False,
-                      sleep_interval: Optional[int] = None,
-                      sleep_subtitles: Optional[float] = None,
-                      pot_provider_mode: Optional[str] = None,
-                      pot_provider_url: Optional[str] = None,
-                      pot_provider_script: Optional[str] = None) -> bool:
-        """Download video using yt-dlp with optimized settings."""
-        if extra_args is None:
-            extra_args = []
+    def download_video(self, opts: DownloadOptions) -> bool:
+        """Download video using yt-dlp with optimized settings.
 
+        Validates, fetches metadata, picks a format, and hands the work
+        off to ``_run_download`` with platform + output_dir filled in.
+        """
         # Detect platform
-        platform = self.detect_platform(url)
+        platform = self.detect_platform(opts.url)
         logger.info(f"Detected platform: {platform.capitalize()}")
 
         # Validate YouTube requirements (JavaScript runtime)
-        self._validate_youtube_requirements(url)
+        self._validate_youtube_requirements(opts.url)
 
         # Validate and configure PO Token provider for YouTube
-        self._validate_pot_provider(url, pot_provider_mode)
+        self._validate_pot_provider(opts.url, opts.pot_provider_mode)
 
         # Get video metadata (single -j call; also returns the formats list).
         # Raises YtDlpWrapperError on failure — download_video never sees an
         # empty info dict, so we don't have to guard against one.
         logger.info("Fetching video metadata...")
-        info = self.get_video_info(url)
+        info = self.get_video_info(opts.url)
 
         # Check for premium formats if YouTube and prefer_premium is enabled
-        if platform == 'youtube' and prefer_premium and not format_selector:
+        format_selector = opts.format_selector
+        if platform == 'youtube' and opts.prefer_premium and not format_selector:
             premium_format = self.find_premium_format(info)
             if premium_format:
                 format_selector = premium_format
@@ -401,37 +420,22 @@ class VideoDownloader:
         output_dir = self.create_output_dir(title, date_str)
         logger.info(f"Output directory: {output_dir}")
 
-        return self._run_download(
-            url=url,
-            extra_args=extra_args,
+        run_opts = dataclasses.replace(
+            opts,
             format_selector=format_selector,
-            youtube_client=youtube_client,
-            try_sabr=try_sabr,
-            try_fallback_clients=try_fallback_clients,
-            sponsorblock_mark=sponsorblock_mark,
-            sponsorblock_remove=sponsorblock_remove,
-            embed_chapters=embed_chapters,
-            sleep_interval=sleep_interval,
-            sleep_subtitles=sleep_subtitles,
-            pot_provider_mode=pot_provider_mode,
-            pot_provider_url=pot_provider_url,
-            pot_provider_script=pot_provider_script,
             platform=platform,
             output_dir=output_dir,
         )
+        return self._run_download(run_opts)
 
-    def _build_command(self, url: str, extra_args: List[str], format_selector: str,
-                      youtube_client: Optional[str], try_sabr: bool,
-                      sponsorblock_mark: Optional[str], sponsorblock_remove: Optional[str],
-                      embed_chapters: bool, sleep_interval: Optional[int],
-                      sleep_subtitles: Optional[float], pot_provider_mode: Optional[str],
-                      pot_provider_url: Optional[str], pot_provider_script: Optional[str],
-                      platform: str, output_dir: Path) -> List[str]:
+    def _build_command(self, opts: DownloadOptions) -> List[str]:
         """Build the yt-dlp command list for a single download attempt."""
+        platform = opts.platform
+        output_dir = opts.output_dir
         base_cmd = [
             'yt-dlp',
             '--cookies-from-browser', self.cookies_browser_arg,
-            '-f', format_selector,
+            '-f', opts.format_selector,
             '--write-auto-sub',
             '--sub-lang', 'en.*',
             '--convert-subs', 'srt',
@@ -442,37 +446,37 @@ class VideoDownloader:
         ]
 
         # Add chapter embedding (split from metadata for granular control)
-        if embed_chapters:
+        if opts.embed_chapters:
             base_cmd.append('--embed-chapters')
 
         # Add SponsorBlock options (YouTube only)
         if platform == 'youtube':
-            if sponsorblock_mark:
-                base_cmd.extend(['--sponsorblock-mark', sponsorblock_mark])
-                logger.info(f"SponsorBlock: Marking categories: {sponsorblock_mark}")
-            if sponsorblock_remove:
-                base_cmd.extend(['--sponsorblock-remove', sponsorblock_remove])
-                logger.info(f"SponsorBlock: Removing categories: {sponsorblock_remove}")
+            if opts.sponsorblock_mark:
+                base_cmd.extend(['--sponsorblock-mark', opts.sponsorblock_mark])
+                logger.info(f"SponsorBlock: Marking categories: {opts.sponsorblock_mark}")
+            if opts.sponsorblock_remove:
+                base_cmd.extend(['--sponsorblock-remove', opts.sponsorblock_remove])
+                logger.info(f"SponsorBlock: Removing categories: {opts.sponsorblock_remove}")
 
         # Add sleep interval for rate limiting
-        if sleep_interval:
-            base_cmd.extend(['--sleep-interval', str(sleep_interval)])
-            logger.info(f"Rate limiting: {sleep_interval} seconds between downloads")
+        if opts.sleep_interval:
+            base_cmd.extend(['--sleep-interval', str(opts.sleep_interval)])
+            logger.info(f"Rate limiting: {opts.sleep_interval} seconds between downloads")
 
         # Add sleep subtitles for subtitle download rate limiting
-        if sleep_subtitles:
-            base_cmd.extend(['--sleep-subtitles', str(sleep_subtitles)])
-            logger.info(f"Subtitle rate limiting: {sleep_subtitles} seconds between subtitle downloads")
+        if opts.sleep_subtitles:
+            base_cmd.extend(['--sleep-subtitles', str(opts.sleep_subtitles)])
+            logger.info(f"Subtitle rate limiting: {opts.sleep_subtitles} seconds between subtitle downloads")
 
         # Add YouTube client option if specified and it's a YouTube URL
         if platform == 'youtube':
             # Handle YouTube SABR streaming format options
-            if youtube_client:
-                logger.info(f"Using YouTube client: {youtube_client}")
-                base_cmd.extend(['--extractor-args', f"youtube:player-client={youtube_client}"])
+            if opts.youtube_client:
+                logger.info(f"Using YouTube client: {opts.youtube_client}")
+                base_cmd.extend(['--extractor-args', f"youtube:player-client={opts.youtube_client}"])
 
             # Enable SABR formats if requested
-            if try_sabr:
+            if opts.try_sabr:
                 logger.info("Enabling YouTube SABR format support")
                 formats_arg = "youtube:formats=duplicate"
                 if any(arg.startswith("--extractor-args") for arg in base_cmd):
@@ -487,12 +491,12 @@ class VideoDownloader:
 
             # Configure PO Token provider if custom settings are provided
             pot_args = []
-            if pot_provider_url:
-                pot_args.append(f"youtubepot-bgutilhttp:base_url={pot_provider_url}")
-                logger.info(f"Using custom PO Token provider URL: {pot_provider_url}")
-            if pot_provider_script:
-                pot_args.append(f"youtubepot-bgutilscript:script_path={pot_provider_script}")
-                logger.info(f"Using custom PO Token provider script: {pot_provider_script}")
+            if opts.pot_provider_url:
+                pot_args.append(f"youtubepot-bgutilhttp:base_url={opts.pot_provider_url}")
+                logger.info(f"Using custom PO Token provider URL: {opts.pot_provider_url}")
+            if opts.pot_provider_script:
+                pot_args.append(f"youtubepot-bgutilscript:script_path={opts.pot_provider_script}")
+                logger.info(f"Using custom PO Token provider script: {opts.pot_provider_script}")
 
             if pot_args:
                 # Combine with existing extractor args
@@ -511,18 +515,11 @@ class VideoDownloader:
                         base_cmd.extend(['--extractor-args', pot_arg])
 
         # Add extra arguments
-        base_cmd.extend(extra_args)
-        base_cmd.append(url)
+        base_cmd.extend(opts.extra_args)
+        base_cmd.append(opts.url)
         return base_cmd
 
-    def _run_download(self, url: str, extra_args: List[str], format_selector: str,
-                     youtube_client: Optional[str], try_sabr: bool,
-                     try_fallback_clients: bool,
-                     sponsorblock_mark: Optional[str], sponsorblock_remove: Optional[str],
-                     embed_chapters: bool, sleep_interval: Optional[int],
-                     sleep_subtitles: Optional[float], pot_provider_mode: Optional[str],
-                     pot_provider_url: Optional[str], pot_provider_script: Optional[str],
-                     platform: str, output_dir: Path) -> bool:
+    def _run_download(self, opts: DownloadOptions) -> bool:
         """
         Run a single download attempt, optionally recursing into fallback clients on failure.
 
@@ -530,23 +527,7 @@ class VideoDownloader:
         Recursive fallback calls re-enter this method (not download_video) so the
         validation and metadata fetch from the outer call are reused.
         """
-        base_cmd = self._build_command(
-            url=url,
-            extra_args=extra_args,
-            format_selector=format_selector,
-            youtube_client=youtube_client,
-            try_sabr=try_sabr,
-            sponsorblock_mark=sponsorblock_mark,
-            sponsorblock_remove=sponsorblock_remove,
-            embed_chapters=embed_chapters,
-            sleep_interval=sleep_interval,
-            sleep_subtitles=sleep_subtitles,
-            pot_provider_mode=pot_provider_mode,
-            pot_provider_url=pot_provider_url,
-            pot_provider_script=pot_provider_script,
-            platform=platform,
-            output_dir=output_dir,
-        )
+        base_cmd = self._build_command(opts)
 
         # Execute download.
         # stdout is inherited (so the user sees yt-dlp's progress in their terminal);
@@ -565,6 +546,7 @@ class VideoDownloader:
             return True
         except subprocess.CalledProcessError as e:
             error_output = e.stderr or ""
+            platform = opts.platform
 
             # Check for PO Token errors
             po_token_error = False
@@ -612,58 +594,35 @@ class VideoDownloader:
                     logger.warning("YouTube SABR streaming issue detected")
 
             # Try fallback clients for YouTube if enabled and appropriate
-            if platform == 'youtube' and try_fallback_clients and (sabr_related or not youtube_client):
-                available_clients = [c for c in YOUTUBE_CLIENTS if c != youtube_client]
+            if platform == 'youtube' and opts.try_fallback_clients and (sabr_related or not opts.youtube_client):
+                available_clients = [c for c in YOUTUBE_CLIENTS if c != opts.youtube_client]
 
                 for client in available_clients:
                     logger.info(f"Trying fallback YouTube client: {client}")
-                    # Create new extra_args without any existing YouTube client or format settings
-                    filtered_args = [arg for arg in extra_args if "--extractor-args" not in arg]
+                    # Drop any existing YouTube extractor args; the new client owns that slot.
+                    filtered_args = [arg for arg in opts.extra_args if "--extractor-args" not in arg]
 
-                    # Try with this client (recurse into _run_download, NOT download_video)
-                    if self._run_download(
-                        url=url,
-                        extra_args=filtered_args,
-                        format_selector=format_selector,
+                    if self._run_download(dataclasses.replace(
+                        opts,
                         youtube_client=client,
                         try_sabr=False,  # Don't try SABR in fallback attempt
                         try_fallback_clients=False,  # Prevent infinite recursion
-                        sponsorblock_mark=sponsorblock_mark,
-                        sponsorblock_remove=sponsorblock_remove,
-                        embed_chapters=embed_chapters,
-                        sleep_interval=sleep_interval,
-                        sleep_subtitles=sleep_subtitles,
-                        pot_provider_mode=pot_provider_mode,
-                        pot_provider_url=pot_provider_url,
-                        pot_provider_script=pot_provider_script,
-                        platform=platform,
-                        output_dir=output_dir,
-                    ):
+                        extra_args=filtered_args,
+                    )):
                         return True
 
                 # If SABR might be the only option, try enabling it
-                if sabr_related and not try_sabr:
+                if sabr_related and not opts.try_sabr:
                     logger.info("Trying with SABR format support enabled")
-                    filtered_args = [arg for arg in extra_args if "--extractor-args" not in arg]
+                    filtered_args = [arg for arg in opts.extra_args if "--extractor-args" not in arg]
 
-                    return self._run_download(
-                        url=url,
-                        extra_args=filtered_args,
-                        format_selector=format_selector,
-                        youtube_client=youtube_client or 'web',  # Default to web for SABR
+                    return self._run_download(dataclasses.replace(
+                        opts,
+                        youtube_client=opts.youtube_client or 'web',  # Default to web for SABR
                         try_sabr=True,  # Enable SABR formats
                         try_fallback_clients=False,  # Prevent infinite recursion
-                        sponsorblock_mark=sponsorblock_mark,
-                        sponsorblock_remove=sponsorblock_remove,
-                        embed_chapters=embed_chapters,
-                        sleep_interval=sleep_interval,
-                        sleep_subtitles=sleep_subtitles,
-                        pot_provider_mode=pot_provider_mode,
-                        pot_provider_url=pot_provider_url,
-                        pot_provider_script=pot_provider_script,
-                        platform=platform,
-                        output_dir=output_dir,
-                    )
+                        extra_args=filtered_args,
+                    ))
 
             logger.error(f"Download failed (return code {e.returncode}): {shlex.join(base_cmd)}")
             if e.stderr:
@@ -740,8 +699,8 @@ Examples:
     
     try:
         downloader = VideoDownloader(cookies_browser=args.browser)
-        success = downloader.download_video(
-            args.url,
+        opts = DownloadOptions(
+            url=args.url,
             extra_args=extra_args,
             format_selector=args.format,
             youtube_client=args.youtube_client,
@@ -755,8 +714,9 @@ Examples:
             sleep_subtitles=args.sleep_subtitles,
             pot_provider_mode=args.pot_provider_mode,
             pot_provider_url=args.pot_provider_url,
-            pot_provider_script=args.pot_provider_script
+            pot_provider_script=args.pot_provider_script,
         )
+        success = downloader.download_video(opts)
         
         sys.exit(0 if success else 1)
         

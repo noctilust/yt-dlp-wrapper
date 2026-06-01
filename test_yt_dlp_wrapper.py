@@ -24,6 +24,7 @@ spec.loader.exec_module(wrapper)
 VideoDownloader = wrapper.VideoDownloader
 YtDlpWrapperError = wrapper.YtDlpWrapperError
 YOUTUBE_CLIENTS = wrapper.YOUTUBE_CLIENTS
+DownloadOptions = wrapper.DownloadOptions
 
 
 def make_downloader():
@@ -293,7 +294,7 @@ class TestDownloadVideoPropagates(unittest.TestCase):
         dl._check_pot_plugin_installed = lambda: True
 
         with self.assertRaises(YtDlpWrapperError) as ctx:
-            dl.download_video("https://www.youtube.com/watch?v=abc")
+            dl.download_video(DownloadOptions(url="https://www.youtube.com/watch?v=abc"))
         self.assertIn("cookies invalid", str(ctx.exception))
 
 
@@ -328,7 +329,7 @@ class TestRunDownloadStderrCapture(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
             with mock.patch.object(wrapper.subprocess, "run", side_effect=fake_run):
-                ok = dl._run_download(
+                ok = dl._run_download(DownloadOptions(
                     url=url,
                     extra_args=[],
                     format_selector="best",
@@ -345,7 +346,7 @@ class TestRunDownloadStderrCapture(unittest.TestCase):
                     pot_provider_script=None,
                     platform="youtube",
                     output_dir=out,
-                )
+                ))
             self.assertTrue(ok)
             # First call: stderr=PIPE captured
             self.assertEqual(calls[0].get("stderr"), subprocess.PIPE)
@@ -399,7 +400,10 @@ class TestRunDownloadNoMetadataRefetch(unittest.TestCase):
             dl.create_output_dir = lambda t, d: out
 
             with mock.patch.object(wrapper.subprocess, "run", side_effect=fake_run):
-                ok = dl.download_video(url, try_fallback_clients=True)
+                ok = dl.download_video(DownloadOptions(
+                    url=url,
+                    try_fallback_clients=True,
+                ))
 
             self.assertTrue(ok)
             # Metadata was fetched exactly once even though we had multiple
@@ -429,7 +433,7 @@ class TestRunDownloadNoFallbackWhenDisabled(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
             with mock.patch.object(wrapper.subprocess, "run", side_effect=fake_run):
-                ok = dl._run_download(
+                ok = dl._run_download(DownloadOptions(
                     url=url,
                     extra_args=[],
                     format_selector="best",
@@ -446,7 +450,7 @@ class TestRunDownloadNoFallbackWhenDisabled(unittest.TestCase):
                     pot_provider_script=None,
                     platform="youtube",
                     output_dir=out,
-                )
+                ))
             self.assertFalse(ok)
             # Only one attempt when fallback is disabled
             self.assertEqual(call_count[0], 1)
@@ -505,7 +509,7 @@ class TestBuildCommand(unittest.TestCase):
         dl = make_downloader()
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
-            cmd = dl._build_command(
+            cmd = dl._build_command(DownloadOptions(
                 url="https://www.youtube.com/watch?v=abc",
                 extra_args=[],
                 format_selector="best",
@@ -521,7 +525,7 @@ class TestBuildCommand(unittest.TestCase):
                 pot_provider_script=None,
                 platform="youtube",
                 output_dir=out,
-            )
+            ))
         self.assertEqual(cmd[0], "yt-dlp")
         self.assertIn("--cookies-from-browser", cmd)
         self.assertIn("chrome", cmd)
@@ -540,7 +544,7 @@ class TestBuildCommand(unittest.TestCase):
         dl = make_downloader()
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
-            yt_cmd = dl._build_command(
+            yt_cmd = dl._build_command(DownloadOptions(
                 url="https://www.youtube.com/watch?v=abc",
                 extra_args=[],
                 format_selector="best",
@@ -556,8 +560,8 @@ class TestBuildCommand(unittest.TestCase):
                 pot_provider_script=None,
                 platform="youtube",
                 output_dir=out,
-            )
-            tw_cmd = dl._build_command(
+            ))
+            tw_cmd = dl._build_command(DownloadOptions(
                 url="https://twitter.com/user/status/123",
                 extra_args=[],
                 format_selector="best",
@@ -573,7 +577,7 @@ class TestBuildCommand(unittest.TestCase):
                 pot_provider_script=None,
                 platform="x",
                 output_dir=out,
-            )
+            ))
         self.assertIn("--sponsorblock-mark", yt_cmd)
         self.assertIn("all", yt_cmd)
         # Twitter: sponsorblock must not appear
@@ -583,7 +587,7 @@ class TestBuildCommand(unittest.TestCase):
         dl = make_downloader()
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
-            cmd = dl._build_command(
+            cmd = dl._build_command(DownloadOptions(
                 url="https://www.youtube.com/watch?v=abc",
                 extra_args=[],
                 format_selector="best",
@@ -599,7 +603,7 @@ class TestBuildCommand(unittest.TestCase):
                 pot_provider_script=None,
                 platform="youtube",
                 output_dir=out,
-            )
+            ))
         # Find the --extractor-args value
         i = cmd.index("--extractor-args")
         arg = cmd[i + 1]
@@ -612,7 +616,7 @@ class TestBuildCommand(unittest.TestCase):
         dl = make_downloader()
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
-            cmd = dl._build_command(
+            cmd = dl._build_command(DownloadOptions(
                 url="https://www.youtube.com/watch?v=abc",
                 extra_args=[],
                 format_selector="best",
@@ -628,7 +632,7 @@ class TestBuildCommand(unittest.TestCase):
                 pot_provider_script=None,
                 platform="youtube",
                 output_dir=out,
-            )
+            ))
         i = cmd.index("--extractor-args")
         arg = cmd[i + 1]
         self.assertIn("youtubepot-bgutilhttp:base_url=http://example.com:9999", arg)
