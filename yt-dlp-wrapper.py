@@ -204,7 +204,7 @@ class VideoDownloader:
                 logger.debug(f"PO Token HTTP server is running at {host}:{port}")
                 return True
             return False
-        except (socket.error, Exception) as e:
+        except Exception as e:
             logger.debug(f"PO Token HTTP server check failed: {e}")
             return False
 
