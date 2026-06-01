@@ -252,20 +252,29 @@ class VideoDownloader:
             )
 
     def get_video_info(self, url: str) -> Dict[str, Any]:
-        """Get video metadata (including the full formats list) as JSON."""
+        """Get video metadata (including the full formats list) as JSON.
+
+        Raises YtDlpWrapperError if the fetch fails, times out, or returns
+        unparseable output — callers don't have to handle empty-dict results.
+        """
         cmd = ['yt-dlp', '--cookies-from-browser', self.cookies_browser_arg, '-j', url]
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            if result.returncode != 0:
-                logger.warning(f"Could not retrieve video information: {result.stderr}")
-                return {}
-            return json.loads(result.stdout)
         except subprocess.TimeoutExpired:
-            logger.error("Video info command timed out after 5 minutes")
-            return {}
+            raise YtDlpWrapperError(
+                f"Video info command timed out after 5 minutes for {url}"
+            )
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            raise YtDlpWrapperError(
+                f"Could not retrieve video information for {url}: {stderr}"
+            )
+        try:
+            return json.loads(result.stdout)
         except json.JSONDecodeError as e:
-            logger.error(f"Could not parse video information: {e}")
-            return {}
+            raise YtDlpWrapperError(
+                f"Could not parse video information for {url}: {e}"
+            )
     
     def detect_platform(self, url: str) -> str:
         """Detect the platform from the URL."""
@@ -370,17 +379,11 @@ class VideoDownloader:
         # Validate and configure PO Token provider for YouTube
         self._validate_pot_provider(url, pot_provider_mode)
 
-        # Get video metadata (single -j call; also returns the formats list)
+        # Get video metadata (single -j call; also returns the formats list).
+        # Raises YtDlpWrapperError on failure — download_video never sees an
+        # empty info dict, so we don't have to guard against one.
         logger.info("Fetching video metadata...")
         info = self.get_video_info(url)
-
-        # Fail fast if metadata fetch failed — otherwise the output dir defaults
-        # to "YYYY.MM.DD - video" and consecutive failed downloads collide.
-        if not info:
-            raise YtDlpWrapperError(
-                f"Could not fetch video metadata for {url}. "
-                "Check your cookies, network, and yt-dlp installation."
-            )
 
         # Check for premium formats if YouTube and prefer_premium is enabled
         if platform == 'youtube' and prefer_premium and not format_selector:

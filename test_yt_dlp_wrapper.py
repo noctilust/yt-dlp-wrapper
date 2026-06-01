@@ -230,18 +230,71 @@ class TestDetectPlatform(unittest.TestCase):
         )
 
 
-class TestDownloadVideoFailFast(unittest.TestCase):
-    """Bug #3: empty info must not produce a colliding 'video' folder."""
+class TestGetVideoInfoRaises(unittest.TestCase):
+    """B: get_video_info now raises YtDlpWrapperError instead of returning {}."""
 
-    def test_empty_info_raises(self):
+    def test_subprocess_failure_raises(self):
         dl = make_downloader()
-        dl.get_video_info = lambda u: {}
+        with mock.patch.object(
+            wrapper.subprocess, "run",
+            return_value=subprocess.CompletedProcess(
+                args=["yt-dlp"], returncode=1, stdout="", stderr="auth failed"
+            ),
+        ):
+            with self.assertRaises(YtDlpWrapperError) as ctx:
+                dl.get_video_info("https://www.youtube.com/watch?v=abc")
+        self.assertIn("auth failed", str(ctx.exception))
+
+    def test_timeout_raises(self):
+        dl = make_downloader()
+        with mock.patch.object(
+            wrapper.subprocess, "run",
+            side_effect=subprocess.TimeoutExpired(cmd="yt-dlp", timeout=300),
+        ):
+            with self.assertRaises(YtDlpWrapperError) as ctx:
+                dl.get_video_info("https://www.youtube.com/watch?v=abc")
+        self.assertIn("timed out", str(ctx.exception).lower())
+
+    def test_invalid_json_raises(self):
+        dl = make_downloader()
+        with mock.patch.object(
+            wrapper.subprocess, "run",
+            return_value=subprocess.CompletedProcess(
+                args=["yt-dlp"], returncode=0, stdout="not json", stderr=""
+            ),
+        ):
+            with self.assertRaises(YtDlpWrapperError):
+                dl.get_video_info("https://www.youtube.com/watch?v=abc")
+
+    def test_valid_json_returns_dict(self):
+        dl = make_downloader()
+        with mock.patch.object(
+            wrapper.subprocess, "run",
+            return_value=subprocess.CompletedProcess(
+                args=["yt-dlp"], returncode=0,
+                stdout='{"title": "x", "formats": []}', stderr=""
+            ),
+        ):
+            info = dl.get_video_info("https://www.youtube.com/watch?v=abc")
+        self.assertEqual(info["title"], "x")
+
+
+class TestDownloadVideoPropagates(unittest.TestCase):
+    """B: download_video should not catch get_video_info errors."""
+
+    def test_get_video_info_failure_propagates(self):
+        dl = make_downloader()
+        # Simulate get_video_info raising (e.g., bad cookies)
+        dl.get_video_info = mock.Mock(
+            side_effect=YtDlpWrapperError("cookies invalid")
+        )
         dl._validate_youtube_requirements = lambda u: None
         dl._validate_pot_provider = lambda u, m: None
+        dl._check_pot_plugin_installed = lambda: True
 
         with self.assertRaises(YtDlpWrapperError) as ctx:
             dl.download_video("https://www.youtube.com/watch?v=abc")
-        self.assertIn("metadata", str(ctx.exception).lower())
+        self.assertIn("cookies invalid", str(ctx.exception))
 
 
 class TestRunDownloadStderrCapture(unittest.TestCase):
