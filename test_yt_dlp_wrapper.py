@@ -452,6 +452,42 @@ class TestRunDownloadNoFallbackWhenDisabled(unittest.TestCase):
             self.assertEqual(call_count[0], 1)
 
 
+class TestResolveBrowser(unittest.TestCase):
+    """C: _resolve_browser fallback chain is untested."""
+
+    def test_preferred_available_returns_preferred(self):
+        dl = make_downloader()
+        dl._is_browser_available = lambda b: b == "chrome"
+        result = dl._resolve_browser("chrome")
+        self.assertEqual(result, "chrome")
+        self.assertEqual(dl.cookies_browser_arg, "chrome")
+
+    def test_preferred_missing_falls_back(self):
+        dl = make_downloader()
+        # Only firefox is available
+        dl._is_browser_available = lambda b: b == "firefox"
+        result = dl._resolve_browser("chrome")
+        # Falls back to firefox (next in BROWSER_FALLBACK_ORDER)
+        self.assertEqual(result, "firefox")
+        self.assertEqual(dl.cookies_browser_arg, "firefox")
+
+    def test_no_browsers_returns_preferred(self):
+        dl = make_downloader()
+        dl._is_browser_available = lambda b: False
+        result = dl._resolve_browser("chrome")
+        # No browsers found — keeps preferred and warns
+        self.assertEqual(result, "chrome")
+        self.assertEqual(dl.cookies_browser_arg, "chrome")
+
+    def test_safari_fallback(self):
+        dl = make_downloader()
+        # chrome and firefox missing, safari available
+        dl._is_browser_available = lambda b: b == "safari"
+        result = dl._resolve_browser("chrome")
+        self.assertEqual(result, "safari")
+        self.assertEqual(dl.cookies_browser_arg, "safari")
+
+
 class TestCheckPotPluginInstalled(unittest.TestCase):
     def test_installed_plugin_returns_true(self):
         dl = make_downloader()
