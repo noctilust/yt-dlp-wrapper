@@ -7,6 +7,7 @@ Vibe coding an optimized Python wrapper script for [yt-dlp](https://github.com/y
 - **Smart Format Selection**: Optimized format selector with resolution priority (4K > 2K > 1080p > 720p) and codec preference (av01 > vp9 > avc1)
 - **Premium Format Detection**: Automatically detects and uses YouTube Premium formats when available
 - **JavaScript Runtime Validation**: Checks for Deno/Node.js/Bun/QuickJS for YouTube downloads (required as of yt-dlp 2025.11.12)
+- **EJS Remote Component Fallback**: Automatically passes `--remote-components ejs:github` for YouTube (in metadata and download) to fetch solver scripts from GitHub when the yt-dlp-ejs package is not installed
 - **Multi-Browser Support**: Extract cookies from Firefox, Chrome, or Safari for authenticated downloads
 - **Robust Error Handling**: Comprehensive validation, timeout protection, and graceful failure handling
 - **Multi-Platform Support**: Works with YouTube, X (Twitter), and other platforms supported by yt-dlp
@@ -15,7 +16,7 @@ Vibe coding an optimized Python wrapper script for [yt-dlp](https://github.com/y
 - **Organized Output**: Creates folders named `YYYY.MM.DD - <Video Title>` in your `~/Downloads` directory
 - **Advanced Logging**: Configurable logging levels with detailed progress information
 - **Custom Format Support**: Override default format selection with custom selectors
-- **Dependency Validation**: Automatic checking of Python 3.10+, yt-dlp CLI, JavaScript runtime, and browsers
+- **Dependency Validation**: Automatic checking of Python 3.10+, yt-dlp CLI, ffmpeg, JavaScript runtime, and browsers (with failover)
 - **Timeout Protection**: 5 minutes for metadata, 1 hour for downloads
 - **YouTube SABR Support**: Handles YouTube's Server-side Adaptive Bitrate streaming protocol with automatic client fallbacks
 - **PO Token Provider Integration**: Automatic detection and integration with bgutil-ytdlp-pot-provider plugin for bypassing YouTube bot detection

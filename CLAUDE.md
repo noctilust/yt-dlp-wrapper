@@ -16,7 +16,7 @@ This is a Python wrapper script for [yt-dlp](https://github.com/yt-dlp/yt-dlp) t
 - **SABR streaming support**: Handles YouTube's SABR streaming with client fallback mechanisms
 - **PO Token provider integration**: Automatic detection and integration with bgutil-ytdlp-pot-provider plugin for bypassing YouTube bot detection
 - **SponsorBlock integration**: Mark or remove sponsor segments, intros, outros, hooks, and other video sections
-- **JavaScript runtime validation**: Checks for Deno/Node.js for YouTube downloads (required as of yt-dlp 2025.11.12)
+- **JavaScript runtime validation**: Checks for Deno/Node.js/Bun/QuickJS for YouTube downloads (required as of yt-dlp 2025.11.12); enables `--remote-components ejs:github` fallback automatically for YouTube
 - **Cookie extraction**: Supports Chrome, Firefox, and Safari browsers with automatic failover for authenticated downloads
 - **Comprehensive error handling**: Timeout protection, client fallbacks, PO Token detection, and graceful degradation
 - **Output organization**: Creates dated folders in `~/Downloads/YYYY.MM.DD - <Video Title>/`
@@ -74,14 +74,15 @@ python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"  # Cus
 - **Python 3.10+** required (enforced as of yt-dlp 2025.10.22)
 - **yt-dlp** must be installed and in PATH: `uv pip install -U yt-dlp`
 - **JavaScript runtime** (required for YouTube as of yt-dlp 2025.11.12):
-  - **Deno** (recommended, enabled by default): `brew install deno` (macOS) or see https://deno.land/
-  - Alternative runtimes: Node.js 20+, Bun 1.0.31+, or QuickJS 2023-12-9+
+  - **Deno 2.3+** (recommended): `brew install deno` (macOS) or see https://deno.land/
+  - Alternative runtimes: Node.js 22+, Bun 1.2.11-1.3.14 (deprecated), or QuickJS 2023-12-9+
   - Without a runtime, YouTube downloads will have severely limited format availability
+  - The wrapper automatically adds `--remote-components ejs:github` for YouTube (in get_video_info and download) to allow fetching EJS solvers from GitHub (no need for yt-dlp[default] extra which pulls yt-dlp-ejs)
 - **Browser** (Chrome, Firefox, or Safari) for cookie extraction and authenticated content. The script automatically falls back to other installed browsers if the selected one is not found
 - **PO Token provider plugin** (optional but recommended for YouTube):
   - Install plugin: `uv pip install bgutil-ytdlp-pot-provider`
   - Start HTTP server with Docker: `docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider`
-  - Or use Node.js setup (requires Node.js 18+): see https://github.com/Brainicism/bgutil-ytdlp-pot-provider
+  - Or use Node.js setup (yt-dlp EJS requires Node.js 22+): see https://github.com/Brainicism/bgutil-ytdlp-pot-provider
   - Automatically bypasses YouTube bot detection and PO Token requirements
 
 ### Testing
@@ -93,16 +94,17 @@ No formal testing framework is configured. Test manually with various video URLs
 Uses `argparse` with `parse_known_args()` to forward unknown arguments directly to yt-dlp, enabling pass-through of additional yt-dlp options.
 
 ### Dependency Validation
-The script performs three dependency checks at startup (in `_validate_dependencies()`):
+The script performs dependency checks at startup (in `_validate_dependencies()`):
 1. **yt-dlp in PATH** — fails fast if not found
 2. **yt-dlp version >= 2025.11.12** — warns if below minimum (needed for JS runtime support)
 3. **ffmpeg in PATH** — warns if missing (required for subtitle conversion and video merging)
 4. **Browser cookie availability** — auto-falls back to next browser if preferred is not installed
+5. **JavaScript runtime** (YouTube only) — warns if none; EJS remote component fallback (`--remote-components ejs:github`) is enabled for YouTube metadata+download regardless
 
 ### Error Handling Strategy
 - Custom `YtDlpWrapperError` exception for wrapper-specific errors
 - Python version validation (3.10+ required)
-- JavaScript runtime detection and warnings for YouTube downloads
+- JavaScript runtime detection and warnings for YouTube downloads; automatic EJS remote github fallback for solver scripts on YouTube
 - Timeout protection: 5 minutes for metadata, 1 hour for downloads
 - YouTube client fallback system for SABR streaming issues
 - PO Token error detection with helpful guidance (suggests mweb client)
@@ -118,7 +120,7 @@ The script performs three dependency checks at startup (in `_validate_dependenci
 5. Check for Premium formats (YouTube only, if enabled)
 6. Extract video metadata with timeout protection
 7. Create organized output directory with sanitized names
-8. Build download command with appropriate client settings
+8. Build download command with appropriate client settings (includes `--remote-components ejs:github` for YouTube in both `get_video_info` metadata and `_build_command` for EJS solver script fallback)
 9. Add SponsorBlock options (mark/remove categories) if specified
 10. Add chapter embedding if requested
 11. Add rate limiting (sleep interval, sleep subtitles) if specified

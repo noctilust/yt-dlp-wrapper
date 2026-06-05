@@ -279,6 +279,36 @@ class TestGetVideoInfoRaises(unittest.TestCase):
             info = dl.get_video_info("https://www.youtube.com/watch?v=abc")
         self.assertEqual(info["title"], "x")
 
+    def test_get_video_info_adds_ejs_remote_for_youtube(self):
+        """Ensure metadata fetch for YouTube includes EJS remote fallback."""
+        dl = make_downloader()
+        with mock.patch.object(
+            wrapper.subprocess, "run",
+            return_value=subprocess.CompletedProcess(
+                args=["yt-dlp"], returncode=0,
+                stdout='{"title": "x", "formats": []}', stderr=""
+            ),
+        ) as mock_run:
+            dl.get_video_info("https://www.youtube.com/watch?v=abc")
+        called_cmd = mock_run.call_args[0][0]
+        self.assertIn("--remote-components", called_cmd)
+        self.assertIn("ejs:github", called_cmd)
+        self.assertIn("-j", called_cmd)
+
+    def test_get_video_info_no_ejs_remote_for_non_youtube(self):
+        """Non-YouTube metadata fetch must not include EJS remote components."""
+        dl = make_downloader()
+        with mock.patch.object(
+            wrapper.subprocess, "run",
+            return_value=subprocess.CompletedProcess(
+                args=["yt-dlp"], returncode=0,
+                stdout='{"title": "x"}', stderr=""
+            ),
+        ) as mock_run:
+            dl.get_video_info("https://twitter.com/user/status/123")
+        called_cmd = mock_run.call_args[0][0]
+        self.assertNotIn("--remote-components", called_cmd)
+
 
 class TestDownloadVideoPropagates(unittest.TestCase):
     """B: download_video should not catch get_video_info errors."""
@@ -533,6 +563,9 @@ class TestBuildCommand(unittest.TestCase):
         self.assertIn("best", cmd)
         self.assertIn("--write-auto-sub", cmd)
         self.assertIn("--embed-metadata", cmd)
+        # EJS remote component fallback must be present for YouTube
+        self.assertIn("--remote-components", cmd)
+        self.assertIn("ejs:github", cmd)
         # No embed-chapters when not requested
         self.assertNotIn("--embed-chapters", cmd)
         # No sponsorblock when not requested
@@ -580,8 +613,12 @@ class TestBuildCommand(unittest.TestCase):
             ))
         self.assertIn("--sponsorblock-mark", yt_cmd)
         self.assertIn("all", yt_cmd)
-        # Twitter: sponsorblock must not appear
+        # YouTube: EJS remote must appear (YouTube-only)
+        self.assertIn("--remote-components", yt_cmd)
+        self.assertIn("ejs:github", yt_cmd)
+        # Twitter: sponsorblock and EJS remote must not appear
         self.assertNotIn("--sponsorblock-mark", tw_cmd)
+        self.assertNotIn("--remote-components", tw_cmd)
 
     def test_youtube_client_combined_with_sabr(self):
         dl = make_downloader()
@@ -636,6 +673,35 @@ class TestBuildCommand(unittest.TestCase):
         i = cmd.index("--extractor-args")
         arg = cmd[i + 1]
         self.assertIn("youtubepot-bgutilhttp:base_url=http://example.com:9999", arg)
+
+    def test_ejs_remote_allows_override_via_extra_args(self):
+        """Pass-through --no-remote-components (or ejs:npm) is appended after internal for YT."""
+        dl = make_downloader()
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            cmd = dl._build_command(DownloadOptions(
+                url="https://www.youtube.com/watch?v=abc",
+                extra_args=["--no-remote-components"],
+                format_selector="best",
+                youtube_client=None,
+                try_sabr=False,
+                sponsorblock_mark=None,
+                sponsorblock_remove=None,
+                embed_chapters=False,
+                sleep_interval=None,
+                sleep_subtitles=None,
+                pot_provider_mode=None,
+                pot_provider_url=None,
+                pot_provider_script=None,
+                platform="youtube",
+                output_dir=out,
+            ))
+        # Internal still adds (for metadata always uses it; download sees both)
+        self.assertIn("--remote-components", cmd)
+        self.assertIn("ejs:github", cmd)
+        self.assertIn("--no-remote-components", cmd)
+        # no- appears after the positive (later flags win for disallow)
+        self.assertGreater(cmd.index("--no-remote-components"), cmd.index("--remote-components"))
 
 
 if __name__ == "__main__":
