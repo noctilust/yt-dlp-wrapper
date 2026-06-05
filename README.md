@@ -36,9 +36,10 @@ The script uses yt-dlp's advanced format selector with the following priority:
   - Earlier versions may work but will have limited YouTube format availability
   - Install/update with: `uv pip install -U yt-dlp`
 - JavaScript runtime (required for YouTube as of yt-dlp 2025.11.12):
-  - **Deno** (recommended): `brew install deno` (macOS) or see https://deno.land/
-  - Alternative runtimes: Node.js 20+, Bun 1.0.31+, or QuickJS 2023-12-9+
+  - **Deno 2.3+** (recommended): `brew install deno` (macOS) or see https://deno.land/
+  - Alternative runtimes: Node.js 22+, Bun 1.2.11-1.3.14 (deprecated), or QuickJS 2023-12-9+
   - Without a runtime, YouTube downloads will have severely limited format availability
+  - The wrapper allows yt-dlp to fetch EJS solver scripts from GitHub for YouTube when local EJS components are missing or stale
 - At least one supported browser: Firefox, Chrome, or Safari (for cookie extraction)
 - **PO Token provider plugin** (optional but recommended for YouTube):
   - Plugin: `uv pip install bgutil-ytdlp-pot-provider`
@@ -79,7 +80,7 @@ The script uses yt-dlp's advanced format selector with the following priority:
     # Start the HTTP server with Docker
     docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider
 
-    # Or use Node.js setup (requires Node.js 18+)
+    # Or use Node.js setup (yt-dlp EJS requires Node.js 22+)
     # See https://github.com/Brainicism/bgutil-ytdlp-pot-provider
     ```
 5. (Optional) Make the script executable:
@@ -196,7 +197,7 @@ python yt-dlp-wrapper.py "URL" --verbose --limit-rate 1M --no-playlist
 ## What the script does
 
 ### On Startup (in `__init__`)
-1. **Validates dependencies** - Checks for Python 3.10+, yt-dlp CLI tool, and Firefox browser availability (if selected)
+1. **Validates dependencies** - Checks for Python 3.10+, yt-dlp CLI tool, ffmpeg availability, and supported browser availability
 
 ### During Download
 2. **Detects platform** from the URL (YouTube, X/Twitter, or other)
@@ -211,6 +212,7 @@ python yt-dlp-wrapper.py "URL" --verbose --limit-rate 1M --no-playlist
    - Subtitle download flags (`--write-auto-sub --sub-lang en.* --convert-subs srt`)
    - Metadata embedding (`--embed-metadata` always included)
    - Chapter embedding (`--embed-chapters` only if flag specified)
+   - Remote EJS component fallback (`--remote-components ejs:github`, YouTube only)
    - SponsorBlock options (YouTube only, if specified)
    - YouTube client selection (if specified)
    - PO Token provider configuration (if custom settings provided)

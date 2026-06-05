@@ -51,6 +51,7 @@ SUPPORTED_PLATFORMS = {
     'x': ['twitter.com', 'x.com'],
     'other': []
 }
+YOUTUBE_REMOTE_COMPONENT_ARGS = ['--remote-components', 'ejs:github']
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
@@ -184,9 +185,9 @@ class VideoDownloader:
         """Check for available JavaScript runtime for YouTube downloads."""
         # Runtimes in priority order (only deno is enabled by default in yt-dlp)
         runtimes = {
-            'deno': '2.0.0+',
-            'node': '20.0.0+ (25+ preferred)',
-            'bun': '1.0.31+',
+            'deno': '2.3.0+',
+            'node': '22.0.0+',
+            'bun': '1.2.11+ through 1.3.14 (deprecated)',
             'quickjs': '2023-12-9+'
         }
 
@@ -278,7 +279,7 @@ class VideoDownloader:
                 "   - macOS: brew install deno\n"
                 "   - Linux: curl -fsSL https://deno.land/install.sh | sh\n"
                 "   - Windows: irm https://deno.land/install.ps1 | iex\n"
-                "   Alternatively: Node.js 20+, Bun, or QuickJS"
+                "   Alternatively: Node.js 22+, Bun (deprecated), or QuickJS"
             )
 
     def get_video_info(self, url: str) -> Dict[str, Any]:
@@ -287,7 +288,10 @@ class VideoDownloader:
         Raises YtDlpWrapperError if the fetch fails, times out, or returns
         unparseable output — callers don't have to handle empty-dict results.
         """
-        cmd = ['yt-dlp', '--cookies-from-browser', self.cookies_browser_arg, '-j', url]
+        cmd = ['yt-dlp', '--cookies-from-browser', self.cookies_browser_arg]
+        if self.detect_platform(url) == 'youtube':
+            cmd.extend(YOUTUBE_REMOTE_COMPONENT_ARGS)
+        cmd.extend(['-j', url])
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         except subprocess.TimeoutExpired:
@@ -444,6 +448,9 @@ class VideoDownloader:
             '--no-mtime',  # Don't set file modification time
             '--embed-metadata',  # Embed metadata in video file
         ]
+
+        if platform == 'youtube':
+            base_cmd.extend(YOUTUBE_REMOTE_COMPONENT_ARGS)
 
         # Add chapter embedding (split from metadata for granular control)
         if opts.embed_chapters:
