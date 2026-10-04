@@ -397,7 +397,7 @@ class TestRunDownloadNoMetadataRefetch(unittest.TestCase):
         # Stub get_video_info directly (avoid patching subprocess twice)
         info_calls = []
 
-        def fake_get_info(u):
+        def fake_get_info(u, opts=None):
             info_calls.append(u)
             return {
                 "title": "Test",
@@ -644,10 +644,7 @@ class TestBuildCommand(unittest.TestCase):
         # Find the --extractor-args value
         i = cmd.index("--extractor-args")
         arg = cmd[i + 1]
-        # Both player-client AND formats=duplicate should be present, semicolon-joined
-        self.assertIn("youtube:player-client=tv", arg)
-        self.assertIn("youtube:formats=duplicate", arg)
-        self.assertIn(";", arg)
+        self.assertEqual(arg, "youtube:player-client=tv;formats=duplicate")
 
     def test_pot_provider_args_appended(self):
         dl = make_downloader()
@@ -670,9 +667,11 @@ class TestBuildCommand(unittest.TestCase):
                 platform="youtube",
                 output_dir=out,
             ))
-        i = cmd.index("--extractor-args")
-        arg = cmd[i + 1]
-        self.assertIn("youtubepot-bgutilhttp:base_url=http://example.com:9999", arg)
+        extractor_args = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == '--extractor-args']
+        self.assertEqual(extractor_args, [
+            "youtube:player-client=tv",
+            "youtubepot-bgutilhttp:base_url=http://example.com:9999",
+        ])
 
     def test_ejs_remote_allows_override_via_extra_args(self):
         """Pass-through --no-remote-components (or ejs:npm) is appended after internal for YT."""
@@ -696,12 +695,160 @@ class TestBuildCommand(unittest.TestCase):
                 platform="youtube",
                 output_dir=out,
             ))
-        # Internal still adds (for metadata always uses it; download sees both)
+        # User overrides are appended after wrapper defaults.
         self.assertIn("--remote-components", cmd)
         self.assertIn("ejs:github", cmd)
         self.assertIn("--no-remote-components", cmd)
         # no- appears after the positive (later flags win for disallow)
         self.assertGreater(cmd.index("--no-remote-components"), cmd.index("--remote-components"))
+
+
+class TestUpstreamCompatibility(unittest.TestCase):
+    def test_version_warning_uses_recommended_release(self):
+        dl = make_downloader()
+        for version, should_warn in [('2026.03.17', True), ('2026.08.19', False),
+                                     ('2026.08.20.123456', False), ('custom-build', False)]:
+            with self.subTest(version=version), mock.patch.object(wrapper.shutil, 'which', return_value='/bin/tool'), \
+                 mock.patch.object(dl, '_resolve_browser', return_value='chrome'), \
+                 mock.patch.object(wrapper.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                     args=[], returncode=0, stdout=version, stderr=''
+                 )), mock.patch.object(wrapper.logger, 'warning') as warning:
+                dl._validate_dependencies()
+                if should_warn:
+                    self.assertIn('2026.08.19+', warning.call_args.args[0])
+                else:
+                    warning.assert_not_called()
+
+    def test_current_clients_and_manual_only_android_vr(self):
+        self.assertIn('visionos', YOUTUBE_CLIENTS)
+        self.assertIn('ios', YOUTUBE_CLIENTS)
+        self.assertIn('tv_simply', YOUTUBE_CLIENTS)
+        self.assertNotIn('android_music', YOUTUBE_CLIENTS)
+        self.assertIn('android_vr', YOUTUBE_CLIENTS)
+        self.assertNotIn('android_vr', wrapper.YOUTUBE_FALLBACK_CLIENTS)
+
+    def test_quickjs_executable_and_runtime_priority(self):
+        dl = make_downloader()
+        for executables, expected in [({'qjs', 'bun'}, 'quickjs'), ({'node', 'qjs'}, 'node'),
+                                      ({'deno', 'node'}, 'deno'), (set(), None)]:
+            with self.subTest(executables=executables), mock.patch.object(
+                wrapper.shutil, 'which', side_effect=lambda exe: exe if exe in executables else None
+            ):
+                self.assertEqual(dl._check_javascript_runtime(), expected)
+
+    def test_alternative_runtime_enabled_in_metadata_and_download(self):
+        dl = make_downloader()
+        opts = DownloadOptions(url='https://youtu.be/test', format_selector='best',
+                               platform='youtube', output_dir=Path('/tmp/test'))
+        for runtime in ('node', 'quickjs', 'bun'):
+            with self.subTest(runtime=runtime), mock.patch.object(
+                dl, '_check_javascript_runtime', return_value=runtime
+            ), mock.patch.object(wrapper.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                args=[], returncode=0, stdout='{"title":"Test"}', stderr=''
+            )) as run:
+                dl.get_video_info(opts.url, opts)
+                for cmd in (run.call_args.args[0], dl._build_command(opts)):
+                    self.assertEqual(cmd[cmd.index('--js-runtimes') + 1], runtime)
+
+    def test_user_runtime_controls_disable_auto_selection(self):
+        dl = make_downloader()
+        for extra in (['--no-js-runtimes'], ['--js-runtimes', 'node:/custom/node'],
+                      ['--no-js-runtimes', '--js-runtimes=quickjs:/custom/qjs']):
+            with self.subTest(extra=extra), mock.patch.object(dl, '_check_javascript_runtime') as runtime:
+                args = dl._build_extraction_args(DownloadOptions(url='https://youtu.be/test', extra_args=extra))
+                runtime.assert_not_called()
+                self.assertNotIn('--js-runtimes', args)
+
+    def test_metadata_receives_client_provider_and_extraction_overrides(self):
+        dl = make_downloader()
+        opts = DownloadOptions(
+            url='https://youtu.be/test', youtube_client='tv_downgraded', try_sabr=True,
+            pot_provider_url='http://localhost:8080', pot_provider_script='/tmp/provider.js',
+            extra_args=['--no-remote-components', '--no-js-runtimes',
+                        '--js-runtimes=node:/custom/node', '--extractor-args', 'youtube:lang=en',
+                        '--no-playlist', '--limit-rate', '1M', '--exec', 'echo downloaded'],
+        )
+        with mock.patch.object(wrapper.subprocess, 'run', return_value=subprocess.CompletedProcess(
+            args=[], returncode=0, stdout='{"title":"Test"}', stderr=''
+        )) as run:
+            dl.get_video_info(opts.url, opts)
+        cmd = run.call_args.args[0]
+        self.assertIn('youtube:player-client=tv_downgraded;formats=duplicate', cmd)
+        self.assertIn('youtubepot-bgutilhttp:base_url=http://localhost:8080', cmd)
+        self.assertIn('youtubepot-bgutilscript:script_path=/tmp/provider.js', cmd)
+        self.assertGreater(cmd.index('--no-remote-components'), cmd.index('--remote-components'))
+        self.assertIn('--js-runtimes=node:/custom/node', cmd)
+        self.assertIn('youtube:lang=en', cmd)
+        self.assertIn('--no-playlist', cmd)
+        self.assertIn('--simulate', cmd)
+        self.assertIn('--ignore-no-formats-error', cmd)
+        self.assertNotIn('--exec', cmd)
+        self.assertNotIn('--limit-rate', cmd)
+
+    def test_download_passes_options_into_metadata(self):
+        dl = make_downloader()
+        opts = DownloadOptions(url='https://youtu.be/test', youtube_client='visionos')
+        with mock.patch.object(dl, '_validate_youtube_requirements'), \
+             mock.patch.object(dl, '_validate_pot_provider'), \
+             mock.patch.object(dl, 'get_video_info', return_value={'title': 'Test'}) as info, \
+             mock.patch.object(dl, 'create_output_dir', return_value=Path('/tmp/test')), \
+             mock.patch.object(dl, '_run_download', return_value=True):
+            self.assertTrue(dl.download_video(opts))
+        info.assert_called_once_with(opts.url, opts)
+
+    def test_fallback_preserves_provider_args_and_replaces_user_client(self):
+        extra = ['--extractor-args', 'youtube:player_client=web;lang=en',
+                 '--extractor-args=youtube:formats=duplicate;player-client=web',
+                 '--extractor-args', 'youtubepot-bgutilhttp:base_url=http://localhost:8080',
+                 '--no-remote-components']
+        expected = ['--extractor-args', 'youtube:lang=en;player-client=tv_downgraded',
+                    '--extractor-args=youtube:formats=duplicate;player-client=tv_downgraded',
+                    '--extractor-args', 'youtubepot-bgutilhttp:base_url=http://localhost:8080',
+                    '--no-remote-components']
+        self.assertEqual(VideoDownloader._fallback_extra_args(extra, 'tv_downgraded'), expected)
+        self.assertEqual(extra[1], 'youtube:player_client=web;lang=en')
+
+    def test_duplicate_formats_flag_and_legacy_alias(self):
+        for flag in ('--include-duplicate-formats', '--enable-sabr'):
+            with self.subTest(flag=flag), mock.patch.object(sys, 'argv', ['wrapper', 'https://youtu.be/test', flag]), \
+                 mock.patch.object(wrapper, 'VideoDownloader') as downloader:
+                downloader.return_value.download_video.return_value = True
+                with self.assertRaises(SystemExit) as ctx:
+                    wrapper.main()
+                self.assertEqual(ctx.exception.code, 0)
+                self.assertTrue(downloader.return_value.download_video.call_args.args[0].try_sabr)
+
+    def test_po_token_error_retries_explicit_client_and_preserves_provider(self):
+        dl = make_downloader()
+        opts = DownloadOptions(
+            url='https://youtu.be/test', youtube_client='web', try_fallback_clients=True,
+            format_selector='best', platform='youtube', output_dir=Path('/tmp/test'),
+            extra_args=['--extractor-args', 'youtube:lang=en;player-client=web',
+                        '--extractor-args', 'youtubepot-bgutilhttp:base_url=http://localhost:8080'],
+        )
+        with mock.patch.object(dl, '_check_pot_plugin_installed', return_value=True), \
+             mock.patch.object(wrapper.subprocess, 'run', side_effect=[
+                 subprocess.CalledProcessError(1, [], stderr='ERROR: requires a GVS PO Token'),
+                 subprocess.CompletedProcess([], 0),
+             ]) as run:
+            self.assertTrue(dl._run_download(opts))
+        retry_cmd = run.call_args_list[1].args[0]
+        self.assertIn('youtube:lang=en;player-client=web_embedded', retry_cmd)
+        self.assertIn('youtubepot-bgutilhttp:base_url=http://localhost:8080', retry_cmd)
+
+    def test_exhausted_fallbacks_do_not_attempt_fake_sabr_support(self):
+        dl = make_downloader()
+        opts = DownloadOptions(
+            url='https://youtu.be/test', try_fallback_clients=True,
+            format_selector='best', platform='youtube', output_dir=Path('/tmp/test'),
+        )
+        with mock.patch.object(wrapper.subprocess, 'run', side_effect=subprocess.CalledProcessError(
+            1, [], stderr='ERROR: SABR-only streaming experiment'
+        )) as run, mock.patch.object(wrapper.logger, 'error'):
+            self.assertFalse(dl._run_download(opts))
+        self.assertEqual(run.call_count, 1 + len(wrapper.YOUTUBE_FALLBACK_CLIENTS))
+        for call in run.call_args_list:
+            self.assertFalse(any('formats=duplicate' in arg for arg in call.args[0]))
 
 
 if __name__ == "__main__":

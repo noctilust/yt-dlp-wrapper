@@ -6,7 +6,7 @@ Vibe coding an optimized Python wrapper script for [yt-dlp](https://github.com/y
 
 - **Smart Format Selection**: Optimized format selector with resolution priority (4K > 2K > 1080p > 720p) and codec preference (av01 > vp9 > avc1)
 - **Premium Format Detection**: Automatically detects and uses YouTube Premium formats when available
-- **JavaScript Runtime Validation**: Checks for Deno/Node.js/Bun/QuickJS for YouTube downloads (required as of yt-dlp 2025.11.12)
+- **JavaScript Runtime Detection**: Checks for Deno/Node.js/QuickJS/Bun and enables an installed alternative when Deno is absent; yt-dlp validates runtime versions
 - **EJS Remote Component Fallback**: Automatically passes `--remote-components ejs:github` for YouTube (in metadata and download) to fetch solver scripts from GitHub when the yt-dlp-ejs package is not installed
 - **Multi-Browser Support**: Extract cookies from Firefox, Chrome, or Safari for authenticated downloads
 - **Robust Error Handling**: Comprehensive validation, timeout protection, and graceful failure handling
@@ -18,7 +18,7 @@ Vibe coding an optimized Python wrapper script for [yt-dlp](https://github.com/y
 - **Custom Format Support**: Override default format selection with custom selectors
 - **Dependency Validation**: Automatic checking of Python 3.10+, yt-dlp CLI, ffmpeg, JavaScript runtime, and browsers (with failover)
 - **Timeout Protection**: 5 minutes for metadata, 1 hour for downloads
-- **YouTube SABR Support**: Handles YouTube's Server-side Adaptive Bitrate streaming protocol with automatic client fallbacks
+- **YouTube Client Fallbacks**: Retries alternative clients when download formats fail, including SABR restrictions
 - **PO Token Provider Integration**: Automatic detection and integration with bgutil-ytdlp-pot-provider plugin for bypassing YouTube bot detection
 - **PO Token Error Detection**: Detects PO Token errors and recommends plugin installation or suggests appropriate client options
 
@@ -32,13 +32,15 @@ The script uses yt-dlp's advanced format selector with the following priority:
 
 ## Requirements
 
-- Python 3.10+ (enforced as of yt-dlp 2025.10.22)
+- Python 3.10+; Python 3.11+ recommended by upstream since 2026.07.04 (3.10 support will be dropped soon)
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) **2025.11.12 or later** (recommended for full YouTube support)
-  - Earlier versions may work but will have limited YouTube format availability
-  - Install/update with: `uv pip install -U yt-dlp`
+  - **2026.08.19 or later recommended** for the current client list and YouTube fixes
+  - Install/update with: `uv pip install -U 'yt-dlp[default]'` (includes matching EJS scripts)
 - JavaScript runtime (required for YouTube as of yt-dlp 2025.11.12):
   - **Deno 2.3+** (recommended): `brew install deno` (macOS) or see https://deno.land/
   - Alternative runtimes: Node.js 22+, Bun 1.2.11-1.3.14 (deprecated), or QuickJS 2023-12-9+
+  - QuickJS must be available as `qjs`; runtime priority is Deno → Node → QuickJS → Bun
+  - Use pass-through `--no-js-runtimes --js-runtimes node:/path/to/node` to select a runtime explicitly
   - Without a runtime, YouTube downloads will have severely limited format availability
   - The wrapper allows yt-dlp to fetch EJS solver scripts from GitHub for YouTube when local EJS components are missing or stale
 - At least one supported browser: Firefox, Chrome, or Safari (for cookie extraction)
@@ -51,15 +53,15 @@ The script uses yt-dlp's advanced format selector with the following priority:
 ## Installation
 
 1. Clone this repository or copy `yt-dlp-wrapper.py` to your local machine.
-2. Install yt-dlp CLI tool (version 2025.11.12 or later):
+2. Install yt-dlp CLI tool (2026.08.19 or later recommended):
     ```sh
     # Using uv (recommended)
-    uv pip install -U yt-dlp
+    uv pip install -U 'yt-dlp[default]'
 
     # Or using pipx (isolated installation)
-    pipx install yt-dlp
+    pipx install 'yt-dlp[default]'
 
-    # Verify installation (should show 2025.11.12 or later)
+    # Verify installation (2026.08.19 or later recommended)
     yt-dlp --version
     ```
 3. Install a JavaScript runtime (required for YouTube):
@@ -138,10 +140,12 @@ python yt-dlp-wrapper.py "URL" --browser chrome --format "best[height<=1080]" --
 python yt-dlp-wrapper.py "URL" --youtube-client android
 ```
 
-**Enable SABR format support:**
+**Include duplicate YouTube formats (alternative URLs/protocols):**
 ```sh
-python yt-dlp-wrapper.py "URL" --enable-sabr
+python yt-dlp-wrapper.py "URL" --include-duplicate-formats
 ```
+
+The legacy `--enable-sabr` alias has the same effect. Neither flag enables SABR downloading.
 
 **Disable Premium format detection:**
 ```sh
@@ -174,8 +178,9 @@ python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"
 - `--format, -f`: Custom format selector (overrides default smart selection)
 - `--browser, -b`: Browser to extract cookies from (default: chrome; options: firefox, chrome, safari)
 - `--verbose, -v`: Enable detailed logging output
-- `--youtube-client, -y`: YouTube client to use (web, android, tv, tv_downgraded, mweb, web_embedded, web_safari, web_creator, android_vr, web_music, android_music)
-- `--enable-sabr`: Enable YouTube SABR streaming format support
+- `--youtube-client, -y`: YouTube client to use (default, web, android, tv, tv_downgraded, mweb, web_embedded, web_safari, web_creator, android_vr, web_music, visionos, ios, tv_simply)
+- `--include-duplicate-formats`: Include duplicate YouTube format URLs/protocols
+- `--enable-sabr`: Legacy alias for `--include-duplicate-formats`; does not enable SABR downloading
 - `--no-fallback`: Disable automatic fallback to other YouTube clients
 - `--no-premium`: Disable automatic selection of Premium formats
 - `--sponsorblock-mark CATS`: Mark SponsorBlock categories as chapters (e.g., "all", "sponsor,intro,outro,hook")
@@ -194,6 +199,8 @@ The wrapper uses `argparse.parse_known_args()` to forward any unrecognized argum
 ```sh
 python yt-dlp-wrapper.py "URL" --verbose --limit-rate 1M --no-playlist
 ```
+
+Metadata extraction also receives the selected YouTube client, duplicate-format setting, custom PO Token provider settings, and pass-through runtime/EJS/extractor controls. Browser cookie overrides, proxy/impersonation settings, source address, socket timeout, config/plugin locations, IP version, and `--no-playlist` also apply to the metadata request. Download/output options stay on the download command. Pass-through controls such as `--no-remote-components` take precedence over wrapper defaults in both stages.
 
 ## What the script does
 
@@ -241,7 +248,7 @@ This will:
 
 ## Notes
 
-- **Browser Support**: Defaults to Firefox but supports Chrome and Safari via `--browser` option. Only Firefox has path validation; Chrome/Safari are passed directly to yt-dlp.
+- **Browser Support**: Defaults to Chrome; checks browser paths and falls back through Chrome → Firefox → Safari when the preferred browser is unavailable.
 - **Error Handling**: Script validates dependencies on startup and provides clear error messages
 - **Timeout Protection**: 5 minutes for metadata extraction, 1 hour for downloads
 - **Output Organization**: Folder names are sanitized and limited to 100 characters for filesystem compatibility
@@ -252,8 +259,8 @@ This will:
 - **File Timestamps**: Uses `--no-mtime` to prevent setting file modification time to video upload date
 - **Format Selection**: Uses optimized regex-based format selector for better performance
 - **Graceful Degradation**: Continues working even if browser cookies aren't available
-- **YouTube Client Fallback**: Automatically tries alternative YouTube clients (android, tv, tv_downgraded, mweb, web_music, android_music) if the default fails (unless `--no-fallback` is used)
-- **JavaScript Runtime**: Warns if no JavaScript runtime is detected for YouTube downloads (but continues with limited format availability)
+- **YouTube Client Fallback**: Leaves the first attempt on upstream defaults, then retries web_embedded → tv_downgraded → web_creator → web → mweb → web_safari → web_music → tv → visionos → android → ios → tv_simply (unless `--no-fallback` is used). `android_vr` is manual-only because upstream reports 403 errors for its formats; `android_music` is no longer supported.
+- **JavaScript Runtime**: Warns if no runtime executable is detected; enables an installed alternative unless the user passes runtime controls. yt-dlp checks supported versions.
 
 ## YouTube SABR Streaming & PO Token Handling
 
@@ -283,24 +290,31 @@ docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp
 
 ### Alternative Solutions
 
-1. **Automatic Client Fallback**: If a download fails due to SABR restrictions or PO Token errors, the wrapper will automatically try alternative YouTube clients: `android`, `tv`, `tv_downgraded`, `mweb`, `web_music`, `android_music`.
+1. **Automatic Client Fallback**: Leaves client selection to yt-dlp on the initial attempt, including its authentication-aware defaults. Retries prefer cookie-capable clients and retain custom extractor/provider settings. See the fallback order above.
 
 2. **Manual Client Selection**: You can manually specify which YouTube client to use with `--youtube-client`. Available clients:
-   - `web` - Default web client (may use SABR streaming)
-   - `android` - Android client (often still provides traditional formats)
-   - `tv` - TV client (often still provides traditional formats)
-   - `tv_downgraded` - TV client with downgraded version (prevents SABR on logged-in accounts)
+   - `default` - Let yt-dlp choose clients for the current session
+   - `web`, `web_safari` - Web clients (SABR restrictions can limit formats)
+   - `web_embedded` - Embedded web client; used by upstream for logged-in free accounts
+   - `web_creator` - Requires authentication; used by upstream for Premium accounts
+   - `android`, `ios`, `tv_simply` - Alternative clients; cookie authentication is unsupported
+   - `visionos` - Added in 2026.08.19; part of upstream's defaults without login, does not support cookie authentication
+   - `tv`, `tv_downgraded` - TV clients supporting cookie authentication
    - `mweb` - Mobile web client (alternative for PO Token issues)
    - `web_music` - YouTube Music web client
-   - `android_music` - YouTube Music android client
+   - `android_vr` - Manual-only; upstream reports 403 errors for its formats
 
 3. **PO Token Error Detection**: The wrapper automatically detects PO Token errors and recommends installing the plugin or trying the `mweb` client.
 
-4. **SABR Format Support**: If needed, you can enable SABR format support with `--enable-sabr`. This requires yt-dlp 2025.11.12 or later with SABR streaming support.
+4. **Duplicate Formats**: `--include-duplicate-formats` (legacy alias `--enable-sabr`) sets `youtube:formats=duplicate`. This exposes alternate URLs/protocols for identical content. Upstream still skips SABR formats without a downloadable URL; this option does not add SABR support.
 
 5. **Error Detection**: The wrapper automatically detects SABR-related errors and provides appropriate fallback solutions.
 
 6. **Fallback Limiting**: Prevents infinite recursion by disabling fallbacks during retry attempts.
+
+### Upstream compatibility review (2026-10-04)
+
+Reviewed [stable 2026.08.19](https://github.com/yt-dlp/yt-dlp/releases/tag/2026.08.19) and master through [51bab8a011](https://github.com/yt-dlp/yt-dlp/commit/51bab8a011) (2026-09-27). The wrapper now matches the [current client list](https://github.com/yt-dlp/yt-dlp/blob/51bab8a011/README.md#youtube), uses separate extractor namespaces for providers, and follows [EJS runtime setup](https://github.com/yt-dlp/yt-dlp/wiki/EJS). The existing GitHub EJS fallback remains supported. Python 3.10 still works; upstream recommends 3.11+. September's `web_embedded` user-agent fix is internal to yt-dlp and requires no wrapper change.
 
 ## YouTube Premium Formats
 

@@ -31,19 +31,19 @@ DEFAULT_FORMAT_SELECTOR = (
     "best[ext=mp4]/best"
 )
 
-# YouTube client options for handling SABR streaming issues
+# Supported clients as of yt-dlp 2026.08.19. Keep the initial attempt on
+# yt-dlp's own defaults so it can choose clients based on authentication.
+RECOMMENDED_YTDLP_VERSION = '2026.08.19'
 YOUTUBE_CLIENTS = [
-    'web',       # Web client (May use SABR streaming if enabled for your region/account)
-    'android',   # Android client (Often still provides traditional formats)
-    'tv',        # TV client (Often still provides traditional formats, may require login as of Jan 2026)
-    'tv_downgraded',  # TV client with downgraded version (prevents SABR on logged-in accounts)
-    'mweb',      # Mobile web client (recommended with PO Token for problematic videos)
-    'web_embedded',  # Web embedded client (added 2026.01.31, fixed in 2026.03.13)
-    'web_safari',    # Safari web client (added in yt-dlp 2026.03.13)
-    'web_creator',   # Creator web client (added in yt-dlp 2026.03.13)
-    'android_vr',    # Android VR client (fixed in yt-dlp 2026.03.13)
-    'web_music', # Music web client
-    'android_music'  # Music android client
+    'default', 'web', 'android', 'tv', 'tv_downgraded', 'mweb',
+    'web_embedded', 'web_safari', 'web_creator', 'android_vr', 'web_music',
+    'visionos', 'ios', 'tv_simply',
+]
+# Prefer cookie-capable clients for retries; android_vr remains manual-only
+# because upstream reports HTTP 403 errors for all of its formats.
+YOUTUBE_FALLBACK_CLIENTS = [
+    'web_embedded', 'tv_downgraded', 'web_creator', 'web', 'mweb',
+    'web_safari', 'web_music', 'tv', 'visionos', 'android', 'ios', 'tv_simply',
 ]
 
 SUPPORTED_PLATFORMS = {
@@ -130,24 +130,20 @@ class VideoDownloader:
                 "yt-dlp not found. Install with: uv pip install -U yt-dlp"
             )
 
-        # Check yt-dlp version (2025.11.12 minimum for JS runtime support)
+        # Use the CLI's version, without requiring the packaging library.
         version_cmd = subprocess.run(
             ['yt-dlp', '--version'],
             capture_output=True, text=True, timeout=10
         )
         if version_cmd.returncode == 0:
             version_str = version_cmd.stdout.strip()
-            try:
-                from packaging.version import Version
-                min_version = Version('2025.11.12')
-                current_version = Version(version_str)
-                if current_version < min_version:
-                    logger.warning(
-                        f"yt-dlp {version_str} detected; 2025.11.12+ recommended for full YouTube support. "
-                        "Upgrade with: uv pip install -U yt-dlp"
-                    )
-            except (ImportError, ValueError):
-                pass  # packaging missing or version string unparseable — skip check
+            version_match = re.match(r'^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:\D|$)', version_str)
+            recommended_version = tuple(map(int, RECOMMENDED_YTDLP_VERSION.split('.')))
+            if version_match and tuple(map(int, version_match.groups())) < recommended_version:
+                logger.warning(
+                    f"yt-dlp {version_str} detected; {RECOMMENDED_YTDLP_VERSION}+ recommended "
+                    "for current YouTube clients. Upgrade with: uv pip install -U 'yt-dlp[default]'"
+                )
 
         # Check ffmpeg (required for subtitle conversion and video merging)
         if not shutil.which('ffmpeg'):
@@ -183,16 +179,16 @@ class VideoDownloader:
 
     def _check_javascript_runtime(self) -> Optional[str]:
         """Check for available JavaScript runtime for YouTube downloads."""
-        # Runtimes in priority order (only deno is enabled by default in yt-dlp)
+        # Match yt-dlp priority and executable names. yt-dlp validates versions.
         runtimes = {
-            'deno': '2.3.0+',
-            'node': '22.0.0+',
-            'bun': '1.2.11+ through 1.3.14 (deprecated)',
-            'quickjs': '2023-12-9+'
+            'deno': 'deno',
+            'node': 'node',
+            'quickjs': 'qjs',
+            'bun': 'bun',
         }
 
-        for runtime, version in runtimes.items():
-            if shutil.which(runtime):
+        for runtime, executable in runtimes.items():
+            if shutil.which(executable):
                 logger.debug(f"Found JavaScript runtime: {runtime}")
                 return runtime
 
@@ -282,16 +278,105 @@ class VideoDownloader:
                 "   Alternatively: Node.js 22+, Bun (deprecated), or QuickJS"
             )
 
-    def get_video_info(self, url: str) -> Dict[str, Any]:
+    def _build_extraction_args(self, opts: DownloadOptions) -> List[str]:
+        """Settings shared by metadata extraction and the actual download."""
+        cmd = ['--cookies-from-browser', self.cookies_browser_arg]
+        if self.detect_platform(opts.url) != 'youtube':
+            return cmd
+
+        cmd.extend(YOUTUBE_REMOTE_COMPONENT_ARGS)
+        # Deno is already enabled by yt-dlp. Enable an installed alternative
+        # unless the user explicitly controls the runtime list.
+        if not any(arg.split('=', 1)[0] in ('--js-runtimes', '--no-js-runtimes')
+                   for arg in opts.extra_args):
+            runtime = self._check_javascript_runtime()
+            if runtime and runtime != 'deno':
+                cmd.extend(['--js-runtimes', runtime])
+
+        youtube_args = []
+        if opts.youtube_client:
+            youtube_args.append(f'player-client={opts.youtube_client}')
+        if opts.try_sabr:
+            # Historical --enable-sabr flag: duplicate URLs/protocols are
+            # exposed by this setting, but SABR streams are still skipped.
+            youtube_args.append('formats=duplicate')
+        if youtube_args:
+            cmd.extend(['--extractor-args', 'youtube:' + ';'.join(youtube_args)])
+
+        # Each provider has its own extractor namespace.
+        if opts.pot_provider_url:
+            cmd.extend(['--extractor-args', f'youtubepot-bgutilhttp:base_url={opts.pot_provider_url}'])
+        if opts.pot_provider_script:
+            cmd.extend(['--extractor-args', f'youtubepot-bgutilscript:script_path={opts.pot_provider_script}'])
+        return cmd
+
+    @staticmethod
+    def _metadata_extra_args(extra_args: List[str]) -> List[str]:
+        """Forward extraction controls without download/output side effects."""
+        value_options = {
+            '--js-runtimes', '--remote-components', '--extractor-args',
+            '--cookies-from-browser', '--cookies', '--proxy', '--impersonate',
+            '--source-address', '--socket-timeout', '--config-locations',
+            '--plugin-dirs', '--cache-dir', '--extractor-retries', '--retries',
+        }
+        flag_options = {
+            '--no-js-runtimes', '--no-remote-components', '--no-cookies',
+            '--no-cookies-from-browser', '--no-playlist', '--ignore-config',
+            '--no-plugin-dirs', '--force-ipv4', '--force-ipv6',
+            '--no-cache-dir',
+        }
+        forwarded = []
+        args = iter(extra_args)
+        for arg in args:
+            option, equals, _ = arg.partition('=')
+            if option in value_options:
+                forwarded.append(arg)
+                if not equals:
+                    value = next(args, None)
+                    if value is not None:
+                        forwarded.append(value)
+            elif option in flag_options:
+                forwarded.append(arg)
+        return forwarded
+
+    @staticmethod
+    def _fallback_extra_args(extra_args: List[str], client: str) -> List[str]:
+        """Replace a pass-through client while retaining other extractor settings."""
+        def replace_client(value: str) -> str:
+            namespace, colon, settings = value.partition(':')
+            if not colon or namespace.lower() != 'youtube':
+                return value
+            settings = [setting for setting in settings.split(';')
+                        if setting.split('=', 1)[0].strip().replace('-', '_') != 'player_client']
+            return 'youtube:' + ';'.join([*settings, f'player-client={client}'])
+
+        forwarded = []
+        args = iter(extra_args)
+        for arg in args:
+            if arg == '--extractor-args':
+                forwarded.append(arg)
+                value = next(args, None)
+                if value is not None:
+                    forwarded.append(replace_client(value))
+            elif arg.startswith('--extractor-args='):
+                forwarded.append('--extractor-args=' + replace_client(arg.split('=', 1)[1]))
+            else:
+                forwarded.append(arg)
+        return forwarded
+
+    def get_video_info(self, url: str, opts: Optional[DownloadOptions] = None) -> Dict[str, Any]:
         """Get video metadata (including the full formats list) as JSON.
 
         Raises YtDlpWrapperError if the fetch fails, times out, or returns
         unparseable output — callers don't have to handle empty-dict results.
         """
-        cmd = ['yt-dlp', '--cookies-from-browser', self.cookies_browser_arg]
-        if self.detect_platform(url) == 'youtube':
-            cmd.extend(YOUTUBE_REMOTE_COMPONENT_ARGS)
-        cmd.extend(['-j', url])
+        opts = opts or DownloadOptions(url=url)
+        cmd = ['yt-dlp', *self._build_extraction_args(opts)]
+        cmd.extend(self._metadata_extra_args(opts.extra_args))
+        # Still return metadata when no formats exist, so download retries can
+        # select another client. Explicit simulation keeps config files from
+        # turning the metadata probe into a download.
+        cmd.extend(['--simulate', '--ignore-no-formats-error', '-j', url])
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         except subprocess.TimeoutExpired:
@@ -405,7 +490,7 @@ class VideoDownloader:
         # Raises YtDlpWrapperError on failure — download_video never sees an
         # empty info dict, so we don't have to guard against one.
         logger.info("Fetching video metadata...")
-        info = self.get_video_info(opts.url)
+        info = self.get_video_info(opts.url, opts)
 
         # Check for premium formats if YouTube and prefer_premium is enabled
         format_selector = opts.format_selector
@@ -438,7 +523,7 @@ class VideoDownloader:
         output_dir = opts.output_dir
         base_cmd = [
             'yt-dlp',
-            '--cookies-from-browser', self.cookies_browser_arg,
+            *self._build_extraction_args(opts),
             '-f', opts.format_selector,
             '--write-auto-sub',
             '--sub-lang', 'en.*',
@@ -448,9 +533,6 @@ class VideoDownloader:
             '--no-mtime',  # Don't set file modification time
             '--embed-metadata',  # Embed metadata in video file
         ]
-
-        if platform == 'youtube':
-            base_cmd.extend(YOUTUBE_REMOTE_COMPONENT_ARGS)
 
         # Add chapter embedding (split from metadata for granular control)
         if opts.embed_chapters:
@@ -474,52 +556,6 @@ class VideoDownloader:
         if opts.sleep_subtitles:
             base_cmd.extend(['--sleep-subtitles', str(opts.sleep_subtitles)])
             logger.info(f"Subtitle rate limiting: {opts.sleep_subtitles} seconds between subtitle downloads")
-
-        # Add YouTube client option if specified and it's a YouTube URL
-        if platform == 'youtube':
-            # Handle YouTube SABR streaming format options
-            if opts.youtube_client:
-                logger.info(f"Using YouTube client: {opts.youtube_client}")
-                base_cmd.extend(['--extractor-args', f"youtube:player-client={opts.youtube_client}"])
-
-            # Enable SABR formats if requested
-            if opts.try_sabr:
-                logger.info("Enabling YouTube SABR format support")
-                formats_arg = "youtube:formats=duplicate"
-                if any(arg.startswith("--extractor-args") for arg in base_cmd):
-                    # Update existing extractor args
-                    for i, arg in enumerate(base_cmd):
-                        if arg.startswith("youtube:player-client="):
-                            base_cmd[i] = f"{arg};{formats_arg}"
-                            break
-                else:
-                    # Add new extractor args
-                    base_cmd.extend(['--extractor-args', formats_arg])
-
-            # Configure PO Token provider if custom settings are provided
-            pot_args = []
-            if opts.pot_provider_url:
-                pot_args.append(f"youtubepot-bgutilhttp:base_url={opts.pot_provider_url}")
-                logger.info(f"Using custom PO Token provider URL: {opts.pot_provider_url}")
-            if opts.pot_provider_script:
-                pot_args.append(f"youtubepot-bgutilscript:script_path={opts.pot_provider_script}")
-                logger.info(f"Using custom PO Token provider script: {opts.pot_provider_script}")
-
-            if pot_args:
-                # Combine with existing extractor args
-                existing_yt_args = None
-                for i, arg in enumerate(base_cmd):
-                    if i > 0 and base_cmd[i-1] == '--extractor-args' and 'youtube' in arg:
-                        existing_yt_args = i
-                        break
-
-                for pot_arg in pot_args:
-                    if existing_yt_args is not None:
-                        # Append to existing YouTube extractor args
-                        base_cmd[existing_yt_args] = f"{base_cmd[existing_yt_args]};{pot_arg}"
-                    else:
-                        # Add new extractor args
-                        base_cmd.extend(['--extractor-args', pot_arg])
 
         # Add extra arguments
         base_cmd.extend(opts.extra_args)
@@ -595,41 +631,26 @@ class VideoDownloader:
             if platform == 'youtube' and any(phrase in error_output for phrase in [
                 "web client https formats require a GVS PO Token",
                 "YouTube is forcing SABR streaming",
-                "only SABR formats"]):
+                "only SABR formats", "SABR-only streaming experiment"]):
                 sabr_related = True
                 if not po_token_error:  # Don't duplicate warnings
                     logger.warning("YouTube SABR streaming issue detected")
 
             # Try fallback clients for YouTube if enabled and appropriate
-            if platform == 'youtube' and opts.try_fallback_clients and (sabr_related or not opts.youtube_client):
-                available_clients = [c for c in YOUTUBE_CLIENTS if c != opts.youtube_client]
+            if (platform == 'youtube' and opts.try_fallback_clients
+                    and (sabr_related or po_token_error or not opts.youtube_client)):
+                available_clients = [c for c in YOUTUBE_FALLBACK_CLIENTS if c != opts.youtube_client]
 
                 for client in available_clients:
                     logger.info(f"Trying fallback YouTube client: {client}")
-                    # Drop any existing YouTube extractor args; the new client owns that slot.
-                    filtered_args = [arg for arg in opts.extra_args if "--extractor-args" not in arg]
-
                     if self._run_download(dataclasses.replace(
                         opts,
                         youtube_client=client,
                         try_sabr=False,  # Don't try SABR in fallback attempt
                         try_fallback_clients=False,  # Prevent infinite recursion
-                        extra_args=filtered_args,
+                        extra_args=self._fallback_extra_args(opts.extra_args, client),
                     )):
                         return True
-
-                # If SABR might be the only option, try enabling it
-                if sabr_related and not opts.try_sabr:
-                    logger.info("Trying with SABR format support enabled")
-                    filtered_args = [arg for arg in opts.extra_args if "--extractor-args" not in arg]
-
-                    return self._run_download(dataclasses.replace(
-                        opts,
-                        youtube_client=opts.youtube_client or 'web',  # Default to web for SABR
-                        try_sabr=True,  # Enable SABR formats
-                        try_fallback_clients=False,  # Prevent infinite recursion
-                        extra_args=filtered_args,
-                    ))
 
             logger.error(f"Download failed (return code {e.returncode}): {shlex.join(base_cmd)}")
             if e.stderr:
@@ -663,8 +684,8 @@ Examples:
     parser.add_argument('--youtube-client', '-y', 
                        choices=YOUTUBE_CLIENTS,
                        help='YouTube client to use (helps with SABR streaming issues)')
-    parser.add_argument('--enable-sabr', action='store_true',
-                       help='Enable YouTube SABR streaming format support')
+    parser.add_argument('--include-duplicate-formats', '--enable-sabr', dest='enable_sabr', action='store_true',
+                       help='Include duplicate YouTube formats (legacy alias: --enable-sabr; does not enable SABR)')
     parser.add_argument('--no-fallback', action='store_true',
                        help='Disable automatic fallback to other YouTube clients')
     parser.add_argument('--no-premium', action='store_true',
