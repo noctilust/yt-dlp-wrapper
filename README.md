@@ -90,6 +90,9 @@ The script uses yt-dlp's advanced format selector with the following priority:
     ```sh
     chmod +x yt-dlp-wrapper.py
     ```
+    When run directly, the script uses `python3` from PATH. If that version is
+    older than 3.10, it searches PATH for Python 3.14 through 3.10, then `python`,
+    and restarts with the first supported interpreter it finds.
 
 ## Usage
 

@@ -7,6 +7,7 @@ check yt-dlp/ffmpeg/browser) by using `VideoDownloader.__new__`.
 """
 
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,25 @@ VideoDownloader = wrapper.VideoDownloader
 YtDlpWrapperError = wrapper.YtDlpWrapperError
 YOUTUBE_CLIENTS = wrapper.YOUTUBE_CLIENTS
 DownloadOptions = wrapper.DownloadOptions
+
+
+class PythonLauncherTests(unittest.TestCase):
+    def test_old_python_relaunches_before_downloader_initialization(self):
+        with tempfile.TemporaryDirectory() as directory:
+            # Only the supported interpreter is on PATH; reaching the yt-dlp
+            # check proves startup moved past the old-Python failure.
+            Path(directory, 'python3.14').symlink_to(sys.executable)
+            result = subprocess.run(
+                [sys.executable, '-c',
+                 "import runpy, sys; sys.version_info = (3, 9); "
+                 "runpy.run_path(sys.argv[1], run_name='__main__')",
+                 str(WRAPPER_PATH), 'https://example.com/video'],
+                env={**os.environ, 'PATH': directory},
+                capture_output=True, text=True, timeout=15,
+            )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('yt-dlp not found', result.stderr)
+        self.assertNotIn('Python 3.10+ required', result.stderr)
 
 
 def make_downloader():

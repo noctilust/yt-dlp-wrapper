@@ -6,16 +6,42 @@ Supports YouTube, X (Twitter), and other platforms with improved error handling,
 performance, and maintainability.
 """
 
+import os
+import shutil
+import subprocess
+import sys
+
+
+def _ensure_supported_python():
+    """Re-launch with an installed modern Python when the shebang finds an old one."""
+    if sys.version_info >= (3, 10):
+        return
+    for name in ('python3.14', 'python3.13', 'python3.12', 'python3.11', 'python3.10', 'python'):
+        executable = shutil.which(name)
+        if not executable:
+            continue
+        try:
+            probe = subprocess.run(
+                [executable, '-c', 'import sys; sys.exit(sys.version_info < (3, 10))'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
+            )
+            if probe.returncode == 0:
+                os.execv(executable, [executable, os.path.abspath(__file__), *sys.argv[1:]])
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    sys.exit('Python 3.10+ required. Install a supported Python and make it available on PATH.')
+
+
+if __name__ == '__main__':
+    _ensure_supported_python()
+
 import argparse
 import dataclasses
 import json
 import logging
 import re
 import shlex
-import shutil
 import socket
-import subprocess
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
