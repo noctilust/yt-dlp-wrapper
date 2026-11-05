@@ -1,384 +1,111 @@
 # yt-dlp-wrapper
 
-Vibe coding an optimized Python wrapper script for [yt-dlp](https://github.com/yt-dlp/yt-dlp) that intelligently downloads videos from various platforms including YouTube and X (Twitter). The script features robust error handling, multiple browser support, and smart format selection with codec preferences (av01 > vp9 > avc1). It organizes downloads in well-named folders and includes comprehensive logging.
+A single-file Python wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp) for YouTube, X/Twitter, and other supported sites. It adds sane defaults: resolution/codec-aware format selection, subtitles, embedded metadata, browser cookies, YouTube client fallbacks, and PO Token detection.
 
 ## Features
 
-- **Smart Format Selection**: Optimized format selector with resolution priority (4K > 2K > 1080p > 720p) and codec preference (av01 > vp9 > avc1)
-- **Premium Format Detection**: Automatically detects and uses YouTube Premium formats when available
-- **JavaScript Runtime Detection**: Checks for Deno/Node.js/QuickJS/Bun and enables an installed alternative when Deno is absent; yt-dlp validates runtime versions
-- **EJS Remote Component Fallback**: Automatically passes `--remote-components ejs:github` for YouTube (in metadata and download) to fetch solver scripts from GitHub when the yt-dlp-ejs package is not installed
-- **Multi-Browser Support**: Extract cookies from Firefox, Chrome, or Safari for authenticated downloads
-- **Robust Error Handling**: Comprehensive validation, timeout protection, and graceful failure handling
-- **Multi-Platform Support**: Works with YouTube, X (Twitter), and other platforms supported by yt-dlp
-- **SponsorBlock Integration**: Mark or remove sponsor segments, intros, outros, and other video sections (YouTube only)
-- **Subtitle Download**: Downloads English auto-generated subtitles (all variants: en, en-US, etc.) and converts them to SRT format with error handling
-- **Organized Output**: Creates folders named `YYYY.MM.DD - <Video Title>` in your `~/Downloads` directory
-- **Advanced Logging**: Configurable logging levels with detailed progress information
-- **Custom Format Support**: Override default format selection with custom selectors
-- **Dependency Validation**: Automatic checking of Python 3.11+, yt-dlp CLI, ffmpeg, JavaScript runtime, and browsers (with failover)
-- **Timeout Protection**: 5 minutes for metadata, 1 hour for downloads
-- **YouTube Client Fallbacks**: Retries alternative clients when download formats fail, including SABR restrictions
-- **PO Token Provider Integration**: Automatic detection and integration with bgutil-ytdlp-pot-provider plugin for bypassing YouTube bot detection
-- **PO Token Error Detection**: Detects PO Token errors and recommends plugin installation or suggests appropriate client options
-
-## Format Selection Strategy
-
-The script uses yt-dlp's advanced format selector with the following priority:
-
-1. **Resolution Priority**: 4K (2160p) → 2K (1440p) → 1080p → 720p
-2. **Codec Priority**: Within each resolution, prefers av01 > vp9 > avc1
-3. **Fallback**: Best available format if preferred options aren't available
+- **Formats**: 2160p → 1440p → 1080p → 720p, preferring av01 > vp9 > avc1.
+- **YouTube Premium**: picks the highest-resolution Premium format with the best audio.
+- **Subtitles and metadata**: English auto-subtitles converted to SRT; metadata embedded; chapters optional.
+- **Cookies**: Chrome/Firefox/Safari fallback, skipped safely when no cookie database is readable.
+- **YouTube resilience**: JS runtime detection, EJS GitHub fallback, client retries, PO Token/SABR detection.
+- **Output**: `~/Downloads/YYYY.MM.DD - <title>/` with sanitized folder names.
+- **Pass-through**: unrecognized flags are forwarded to yt-dlp.
 
 ## Requirements
 
-- Python 3.11+ (yt-dlp 2026.10.26 dropped Python 3.10 support; 3.10 reached end-of-life in October 2026)
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) **2025.11.12 or later** (required for full YouTube support)
-  - **2026.10.26 or later recommended** for the current client list (`tv_samsung`) and the `certifi`/`brotli` security fixes
-  - Install/update with: `uv pip install -U 'yt-dlp[default]'` (includes matching EJS scripts)
-- JavaScript runtime (required for YouTube as of yt-dlp 2025.11.12):
-  - **Deno 2.3+** (recommended): `brew install deno` (macOS) or see https://deno.land/
-  - Alternative runtimes: Node.js 22+, Bun 1.2.11-1.3.14 (deprecated), or QuickJS 2023-12-9+
-  - QuickJS must be available as `qjs`; runtime priority is Deno → Node → QuickJS → Bun
-  - Use pass-through `--no-js-runtimes --js-runtimes node:/path/to/node` to select a runtime explicitly
-  - Without a runtime, YouTube downloads will have severely limited format availability
-  - The wrapper allows yt-dlp to fetch EJS solver scripts from GitHub for YouTube when local EJS components are missing or stale
-- At least one supported browser: Firefox, Chrome, or Safari (for cookie extraction; downloads still work without cookies when no browser database is readable)
-- **PO Token provider plugin** (optional but recommended for YouTube):
-  - Plugin: `uv pip install bgutil-ytdlp-pot-provider`
-  - HTTP server: `docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider`
-  - Automatically bypasses YouTube bot detection and PO Token requirements
-  - See https://github.com/Brainicism/bgutil-ytdlp-pot-provider for more details
+- Python 3.11+ (yt-dlp 2026.10.26 dropped Python 3.10).
+- yt-dlp 2025.11.12+; **2026.10.26+ recommended**.
+- ffmpeg for subtitle conversion and A/V merging.
+- One JavaScript runtime for full YouTube support: **Deno 2.3+** (default), Node 22+, QuickJS 2023-12-9+, or Bun 1.2.11–1.3.14 (deprecated).
+- A browser for cookie extraction: Chrome, Firefox, or Safari (optional; downloads work without cookies).
+- Optional: `bgutil-ytdlp-pot-provider` for PO Tokens.
 
 ## Installation
 
-1. Clone this repository or copy `yt-dlp-wrapper.py` to your local machine.
-2. Install yt-dlp CLI tool (2026.10.26 or later recommended):
-    ```sh
-    # Using uv (recommended)
-    uv pip install -U 'yt-dlp[default]'
-
-    # Or using pipx (isolated installation)
-    pipx install 'yt-dlp[default]'
-
-    # Verify installation (2026.10.26 or later recommended)
-    yt-dlp --version
-    ```
-3. Install a JavaScript runtime (required for YouTube):
-    ```sh
-    # macOS (using Homebrew)
-    brew install deno
-
-    # Linux
-    curl -fsSL https://deno.land/install.sh | sh
-
-    # Windows (PowerShell)
-    irm https://deno.land/install.ps1 | iex
-    ```
-4. (Optional but recommended) Install PO Token provider plugin for enhanced YouTube support:
-    ```sh
-    # Install the plugin
-    uv pip install bgutil-ytdlp-pot-provider
-
-    # Start the HTTP server with Docker
-    docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider
-
-    # Or use Node.js setup (yt-dlp EJS requires Node.js 22+)
-    # See https://github.com/Brainicism/bgutil-ytdlp-pot-provider
-    ```
-5. (Optional) Make the script executable:
-    ```sh
-    chmod +x yt-dlp-wrapper.py
-    ```
-    When run directly, the script uses `python3` from PATH. If that version is
-    older than 3.11, it searches PATH for Python 3.14 through 3.11, then `python`,
-    and restarts with the first supported interpreter it finds.
-
-## Usage
-
-### Basic Usage
-
-Run the script with a video URL from a supported platform:
-
-**YouTube:**
 ```sh
-python yt-dlp-wrapper.py "https://www.youtube.com/watch?v=YOUR_VIDEO_ID"
+git clone https://github.com/noctilust/yt-dlp-wrapper.git
+cd yt-dlp-wrapper
+chmod +x yt-dlp-wrapper.py
+
+uv pip install -U 'yt-dlp[default]'   # or: pipx install 'yt-dlp[default]'
+brew install deno                      # or install Node 22+, QuickJS, or Bun
 ```
 
-**X (Twitter):**
-```sh
-python yt-dlp-wrapper.py "https://twitter.com/username/status/YOUR_TWEET_ID"
-```
-
-**Other platforms:**
-```sh
-python yt-dlp-wrapper.py "https://example.com/video"
-```
-
-### Advanced Options
-
-**Custom format selection:**
-```sh
-python yt-dlp-wrapper.py "URL" --format "best[height<=720]"
-```
-
-**Use different browser for cookies:**
-```sh
-python yt-dlp-wrapper.py "URL" --browser chrome
-python yt-dlp-wrapper.py "URL" --browser safari
-```
-
-**Enable verbose logging:**
-```sh
-python yt-dlp-wrapper.py "URL" --verbose
-```
-
-**Combine options:**
-```sh
-python yt-dlp-wrapper.py "URL" --browser chrome --format "best[height<=1080]" --verbose
-```
-
-**Handle YouTube SABR streaming issues:**
-```sh
-python yt-dlp-wrapper.py "URL" --youtube-client android
-```
-
-**Include duplicate YouTube formats (alternative URLs/protocols):**
-```sh
-python yt-dlp-wrapper.py "URL" --include-duplicate-formats
-```
-
-The legacy `--enable-sabr` alias has the same effect. Neither flag enables SABR downloading.
-
-**Disable Premium format detection:**
-```sh
-python yt-dlp-wrapper.py "URL" --no-premium
-```
-
-**Use SponsorBlock to mark or remove segments:**
-```sh
-python yt-dlp-wrapper.py "URL" --sponsorblock-mark all --embed-chapters
-python yt-dlp-wrapper.py "URL" --sponsorblock-remove sponsor
-```
-
-**Add rate limiting for batch downloads:**
-```sh
-python yt-dlp-wrapper.py "URL" --sleep-interval 5
-```
-
-**Use PO Token provider in script mode (no server needed):**
-```sh
-python yt-dlp-wrapper.py "URL" --pot-provider-mode script
-```
-
-**Use custom PO Token provider server:**
-```sh
-python yt-dlp-wrapper.py "URL" --pot-provider-url "http://localhost:8080"
-```
-
-### Command-Line Options
-
-- `--format, -f`: Custom format selector (overrides default smart selection)
-- `--browser, -b`: Browser to extract cookies from (default: chrome; options: firefox, chrome, safari)
-- `--verbose, -v`: Enable detailed logging output
-- `--youtube-client, -y`: YouTube client to use (default, web, android, tv, tv_downgraded, tv_samsung, mweb, web_embedded, web_safari, web_creator, android_vr, web_music, visionos, ios, tv_simply)
-- `--include-duplicate-formats`: Include duplicate YouTube format URLs/protocols
-- `--enable-sabr`: Legacy alias for `--include-duplicate-formats`; does not enable SABR downloading
-- `--no-fallback`: Disable automatic fallback to other YouTube clients
-- `--no-premium`: Disable automatic selection of Premium formats
-- `--sponsorblock-mark CATS`: Mark SponsorBlock categories as chapters (e.g., "all", "sponsor,intro,outro,hook")
-- `--sponsorblock-remove CATS`: Remove SponsorBlock categories from video (e.g., "sponsor")
-- `--embed-chapters`: Embed chapter markers in video file
-- `--sleep-interval SECONDS`: Sleep interval between downloads (recommended: 5-10 seconds)
-- `--pot-provider-mode MODE`: PO Token provider mode (http or script)
-- `--pot-provider-url URL`: Custom PO Token provider HTTP server URL (default: http://127.0.0.1:4416)
-- `--pot-provider-script PATH`: Path to PO Token provider script (for script mode)
-- `--help, -h`: Show help message with examples
-
-### Pass-through Arguments
-
-The wrapper uses `argparse.parse_known_args()` to forward any unrecognized arguments directly to the yt-dlp CLI. This allows you to use any standard yt-dlp option alongside the wrapper's custom options:
+Optional PO Token provider:
 
 ```sh
-python yt-dlp-wrapper.py "URL" --verbose --limit-rate 1M --no-playlist
-```
-
-Metadata extraction also receives the selected YouTube client, duplicate-format setting, custom PO Token provider settings, and pass-through runtime/EJS/extractor controls. Browser cookie overrides, proxy/impersonation settings, source address, socket timeout, config/plugin locations, IP version, and `--no-playlist` also apply to the metadata request. Download/output options stay on the download command. Pass-through controls such as `--no-remote-components` take precedence over wrapper defaults in both stages.
-
-## What the script does
-
-### On Startup (in `__init__`)
-1. **Validates dependencies** - Checks for Python 3.11+, yt-dlp CLI tool, ffmpeg availability, and supported browsers whose cookie databases are actually readable
-
-### During Download
-2. **Detects platform** from the URL (YouTube, X/Twitter, or other)
-3. **Validates YouTube requirements** - Checks for JavaScript runtime (Deno/Node.js/Bun/QuickJS) and warns if missing
-4. **Validates PO Token provider** - Checks if bgutil-ytdlp-pot-provider plugin is installed and HTTP server is running (for YouTube)
-5. **Checks for Premium formats** - For YouTube videos, automatically detects and selects YouTube Premium formats when available (unless `--no-premium` is used)
-6. **Fetches video metadata** - Retrieves title, upload date, and other information with 5-minute timeout protection
-7. **Creates output directory** - Generates organized folder structure (`YYYY.MM.DD - Video Title`) with sanitized names (max 100 characters)
-8. **Builds yt-dlp command** - Constructs command with:
-   - Cookie extraction from the first browser with a readable cookie database (skipped with a warning when none is readable)
-   - Format selector (Premium or default)
-   - Subtitle download flags (`--write-auto-sub --sub-lang en.* --convert-subs srt`)
-   - Metadata embedding (`--embed-metadata` always included)
-   - Chapter embedding (`--embed-chapters` only if flag specified)
-   - Remote EJS component fallback (`--remote-components ejs:github`, YouTube only)
-   - SponsorBlock options (YouTube only, if specified)
-   - YouTube client selection (if specified)
-   - PO Token provider configuration (if custom settings provided)
-   - Rate limiting (if `--sleep-interval` specified)
-9. **Executes download** - Runs yt-dlp command with 1-hour timeout protection
-10. **Handles errors automatically** - Detects SABR/PO Token errors, provides plugin installation guidance, and tries fallback YouTube clients if enabled
-
-## Example
-
-```sh
-python yt-dlp-wrapper.py "https://www.youtube.com/watch?v=u2Ftw_VuedA"
-```
-
-This will:
-1. Check for JavaScript runtime (Deno/Node.js/etc.) and warn if missing
-2. Check for Premium formats and use them if available
-3. Fetch video metadata to get title and upload date
-4. Create output directory: `~/Downloads/YYYY.MM.DD - Video Title/`
-5. Download the highest quality available using format priority:
-   - Resolution: 4K (2160p) → 2K (1440p) → 1080p → 720p
-   - Codec (within each resolution): av01 > vp9 > avc1
-6. Download English auto-generated subtitles (all variants) and convert to SRT
-7. Embed metadata in the video file
-8. Automatically handle SABR/PO Token errors with client fallbacks if needed
-
-## Notes
-
-- **Browser Support**: Defaults to Chrome; falls back through Chrome → Firefox → Safari, using the first browser whose cookie database is actually readable. An installed browser whose database cannot be opened (missing profile, or macOS blocking access to `~/Library/Application Support`) is skipped.
-- **Error Handling**: Script validates dependencies on startup and provides clear error messages
-- **Timeout Protection**: 5 minutes for metadata extraction, 1 hour for downloads
-- **Output Organization**: Folder names are sanitized and limited to 100 characters for filesystem compatibility
-- **Logging**: Uses proper logging levels (INFO by default, DEBUG with `--verbose`)
-- **Exit Codes**: Returns proper exit codes (0 for success, 1 for failure) for scripting
-- **Metadata Embedding**: Automatically embeds video metadata in all downloaded files (via `--embed-metadata`)
-- **Chapter Embedding**: Chapters are only embedded when `--embed-chapters` flag is explicitly used
-- **File Timestamps**: Uses `--no-mtime` to prevent setting file modification time to video upload date
-- **Format Selection**: Uses optimized regex-based format selector for better performance
-- **Graceful Degradation**: Continues without cookies when no browser database is readable, so public videos still download. For authenticated content on macOS, grant Full Disk Access to your terminal (System Settings → Privacy & Security → Full Disk Access) or pass `--cookies <cookies.txt>`.
-- **YouTube Client Fallback**: Leaves the first attempt on upstream defaults, then retries web_embedded → tv_samsung → tv_downgraded → web_creator → web → mweb → web_safari → web_music → tv → visionos → android → ios → tv_simply (unless `--no-fallback` is used). `android_vr` is manual-only because upstream reports 403 errors for its formats; `android_music` is no longer supported.
-- **JavaScript Runtime**: Warns if no runtime executable is detected; enables an installed alternative unless the user passes runtime controls. yt-dlp checks supported versions.
-
-## YouTube SABR Streaming & PO Token Handling
-
-Starting in 2025, YouTube began rolling out a new streaming protocol called SABR (Server-side Adaptive Bitrate) and PO Token requirements, which have impacted tools like yt-dlp. When YouTube serves content via SABR or requires a PO Token, traditional download methods may fail or only retrieve lower quality formats.
-
-This wrapper includes comprehensive features to handle SABR streaming and PO Token errors:
-
-### PO Token Provider Integration (Recommended Solution)
-
-The wrapper automatically integrates with the **bgutil-ytdlp-pot-provider** plugin, which provides automated PO Token generation:
-
-1. **Automatic Detection**: The wrapper checks if the plugin is installed and the HTTP server is running
-2. **Helpful Guidance**: If not detected, provides clear installation instructions with Docker command
-3. **Custom Configuration**: Supports custom server URLs and script mode via command-line options:
-   - `--pot-provider-mode script` - Use script mode (slower but no server needed)
-   - `--pot-provider-url URL` - Custom HTTP server URL
-   - `--pot-provider-script PATH` - Custom script path
-
-**Installation:**
-```sh
-# Install the plugin
 uv pip install bgutil-ytdlp-pot-provider
-
-# Start the HTTP server with Docker (recommended)
 docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider
 ```
 
-### Alternative Solutions
+If `python3` is older than 3.11, the script searches PATH for Python 3.14–3.11 and relaunches.
 
-1. **Automatic Client Fallback**: Leaves client selection to yt-dlp on the initial attempt, including its authentication-aware defaults. Retries prefer cookie-capable clients and retain custom extractor/provider settings. See the fallback order above.
+## Usage
 
-2. **Manual Client Selection**: You can manually specify which YouTube client to use with `--youtube-client`. Available clients:
-   - `default` - Let yt-dlp choose clients for the current session
-   - `web`, `web_safari` - Web clients (SABR restrictions can limit formats)
-   - `web_embedded` - Embedded web client; used by upstream for logged-in free accounts
-   - `web_creator` - Requires authentication; used by upstream for Premium accounts
-   - `android`, `ios`, `tv_simply` - Alternative clients; cookie authentication is unsupported
-   - `visionos` - Added in 2026.08.19; part of upstream's default unauthenticated clients, does not support cookie authentication
-   - `tv`, `tv_downgraded`, `tv_samsung` - TV clients supporting cookie authentication; `tv_samsung` joined upstream's default client sets in 2026.10.21
-   - `mweb` - Mobile web client (alternative for PO Token issues)
-   - `web_music` - YouTube Music web client
-   - `android_vr` - Manual-only; upstream reports 403 errors for its formats
-
-3. **PO Token Error Detection**: The wrapper automatically detects PO Token errors and recommends installing the plugin or trying the `mweb` client.
-
-4. **Duplicate Formats**: `--include-duplicate-formats` (legacy alias `--enable-sabr`) sets `youtube:formats=duplicate`. This exposes alternate URLs/protocols for identical content. Upstream still skips SABR formats without a downloadable URL; this option does not add SABR support.
-
-5. **Error Detection**: The wrapper automatically detects SABR-related errors and provides appropriate fallback solutions.
-
-6. **Fallback Limiting**: Prevents infinite recursion by disabling fallbacks during retry attempts.
-
-### Upstream compatibility review (2026-11-05)
-
-Reviewed [stable 2026.10.26](https://github.com/yt-dlp/yt-dlp/releases/tag/2026.10.26) and master through [412e7f0a4b05](https://github.com/yt-dlp/yt-dlp/commit/412e7f0a4b0588fe884a02b344ac66a06538475b) (2026-11-04). Upstream added the `tv_samsung` client in 2026.10.21 and made it part of the default client sets; the wrapper now exposes it via `--youtube-client` and retries it first after `web_embedded`. The client list otherwise matches upstream's `player_client` values. yt-dlp 2026.10.26 removed Python 3.10 support, so the wrapper now requires Python 3.11+. 2026.10.26 is also the recommended release because 2026.10.21/26 ship security fixes for bundled `certifi`/`brotli`; the wrapper never uses yt-dlp's self-updater. The `web_embedded` Safari user-agent and YouTube extractor fixes are internal to yt-dlp, and master changes after the release are build/dependency-only. The existing GitHub EJS fallback and separate provider namespaces remain supported.
-
-## YouTube Premium Formats
-
-The wrapper automatically detects and prioritizes YouTube Premium formats when available. Premium formats (such as format ID 616) often provide better quality video with enhanced bitrates.
-
-Key features of the Premium format detection:
-
-1. **Automatic Detection**: The wrapper scans the available formats and automatically selects Premium formats when detected.
-
-2. **Smart Premium Quality**: When multiple Premium formats are available, automatically selects the one with the highest resolution.
-
-3. **Manual Control**: You can disable Premium format selection with `--no-premium` if you prefer to use the default format selector.
-
-4. **Best Audio Pairing**: When using Premium video formats, the wrapper automatically selects the best available audio to pair with it.
-
-This feature is particularly useful for high-quality archiving of YouTube content that includes Premium format options.
-
-## SponsorBlock Integration
-
-The wrapper includes built-in SponsorBlock support for YouTube videos, allowing you to automatically mark or remove sponsored segments and other video sections.
-
-### Features
-
-- **Mark Segments as Chapters**: Use `--sponsorblock-mark CATEGORIES` to mark SponsorBlock segments as chapters in the video file
-- **Remove Segments**: Use `--sponsorblock-remove CATEGORIES` to completely remove unwanted segments from the downloaded video
-- **YouTube Only**: SponsorBlock features are automatically enabled only for YouTube videos
-
-### Available Categories
-
-- `sponsor` - Paid promotions and sponsorships
-- `intro` - Intro sequences
-- `outro` - Outro sequences and endcards
-- `selfpromo` - Self-promotion (merch, donations, etc.)
-- `preview` - Preview or recap of other videos
-- `filler` - Filler tangent or off-topic content
-- `interaction` - Reminder to like, subscribe, or follow
-- `music_offtopic` - Non-music sections in music videos
-- `hook` - Segments designed to "hook" viewers at the beginning (added in yt-dlp 2025.11.12)
-- `poi_highlight` - Points of interest highlights
-- `chapter` - Chapter markers
-- `all` - All categories
-
-### Examples
-
-**Mark all SponsorBlock categories as chapters:**
 ```sh
-python yt-dlp-wrapper.py "URL" --sponsorblock-mark all --embed-chapters
+python3 yt-dlp-wrapper.py "https://www.youtube.com/watch?v=VIDEO_ID"
+python3 yt-dlp-wrapper.py "https://x.com/user/status/TWEET_ID"
+python3 yt-dlp-wrapper.py "URL" --format "best[height<=1080]" --verbose
 ```
 
-**Remove only sponsor segments:**
+Unknown options are forwarded to yt-dlp (`--limit-rate 1M`, `--proxy`, etc.). Extraction options apply to both metadata and download; output options apply to the download.
+
+### Options
+
+| Option | Description |
+|---|---|
+| `--format, -f` | Custom yt-dlp format selector |
+| `--browser, -b` | Cookie source: `chrome` (default), `firefox`, `safari` |
+| `--youtube-client, -y` | Force a YouTube client (see list below) |
+| `--no-fallback` | Disable YouTube client retries |
+| `--no-premium` | Ignore Premium formats |
+| `--include-duplicate-formats` | Include alternate URLs/protocols (legacy alias `--enable-sabr`; does not enable SABR) |
+| `--sponsorblock-mark CATS` | Mark segments as chapters (YouTube only) |
+| `--sponsorblock-remove CATS` | Remove segments (YouTube only) |
+| `--embed-chapters` | Embed chapters |
+| `--sleep-interval SEC` | Delay between downloads (int) |
+| `--sleep-subtitles SEC` | Delay between subtitle downloads (float) |
+| `--format-sort-reset` | Reset yt-dlp format sorting |
+| `--compat-options OPTS` | yt-dlp compatibility options (e.g. `2025`) |
+| `--pot-provider-mode` | `http` (default) or `script` |
+| `--pot-provider-url` | Custom PO Token server URL |
+| `--pot-provider-script` | Provider script path |
+| `--verbose, -v` | DEBUG logging |
+| `--help, -h` | Help |
+
+`--youtube-client` choices: `default`, `web`, `android`, `tv`, `tv_downgraded`, `tv_samsung`, `mweb`, `web_embedded`, `web_safari`, `web_creator`, `android_vr`, `web_music`, `visionos`, `ios`, `tv_simply`.
+
+## Behavior
+
+1. Validate dependencies; select the first browser with a readable cookie database.
+2. Detect platform; check the YouTube JS runtime and PO Token setup.
+3. Fetch metadata (`-j`, 5-minute timeout) and choose a Premium format if present.
+4. Create the output folder and download with a 1-hour timeout.
+5. On failure with no client selected, or on SABR/PO Token errors, retry YouTube clients:
+   `web_embedded → tv_samsung → tv_downgraded → web_creator → web → mweb → web_safari → web_music → tv → visionos → android → ios → tv_simply`.
+
+Downloads request English auto-subtitles, embed metadata, and use `--no-mtime`. `android_vr` is manual-only; `android_music` was removed upstream.
+
+## Cookies and YouTube
+
+If no browser cookie database is readable (missing profile, or macOS blocking `~/Library/Application Support`), the wrapper warns and continues without cookies; public videos still work. For authenticated content on macOS, grant Full Disk Access to your terminal or pass `--cookies cookies.txt`.
+
+For PO Token/SABR issues, install `bgutil-ytdlp-pot-provider` and run its HTTP server (above), or try `--youtube-client mweb`. `--include-duplicate-formats` only exposes duplicate formats; it does not add SABR downloads.
+
+## SponsorBlock
+
+YouTube only. Categories come from yt-dlp (`sponsor`, `intro`, `outro`, `selfpromo`, `filler`, `interaction`, `music_offtopic`, `hook`, `poi_highlight`, `chapter`, `all`):
+
 ```sh
-python yt-dlp-wrapper.py "URL" --sponsorblock-remove sponsor
+python3 yt-dlp-wrapper.py "URL" --sponsorblock-mark all --embed-chapters
+python3 yt-dlp-wrapper.py "URL" --sponsorblock-remove sponsor,intro
 ```
 
-**Mark sponsors and intros, remove outros:**
-```sh
-python yt-dlp-wrapper.py "URL" --sponsorblock-mark "sponsor,intro" --sponsorblock-remove outro --embed-chapters
-```
+## Upstream compatibility
+
+Reviewed against yt-dlp 2026.10.26 (2026-11-05), including the `tv_samsung` default client and Python 3.11 requirement. The wrapper adds `--remote-components ejs:github` for YouTube so EJS solvers can be fetched when `yt-dlp-ejs` is absent; `yt-dlp[default]` already bundles them. Timeouts are 5 minutes for metadata and 1 hour for downloads; exit codes are 0 (success) and 1 (failure).
 
 ## License
 
 MIT License
-
----
