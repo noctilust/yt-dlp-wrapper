@@ -11,25 +11,30 @@ import shutil
 import subprocess
 import sys
 
+# Minimum Python version required by current yt-dlp releases (3.11 since 2026.10.26).
+MIN_PYTHON_VERSION = (3, 11)
+MIN_PYTHON_VERSION_TEXT = f'{MIN_PYTHON_VERSION[0]}.{MIN_PYTHON_VERSION[1]}'
+
 
 def _ensure_supported_python():
     """Re-launch with an installed modern Python when the shebang finds an old one."""
-    if sys.version_info >= (3, 10):
+    if sys.version_info >= MIN_PYTHON_VERSION:
         return
-    for name in ('python3.14', 'python3.13', 'python3.12', 'python3.11', 'python3.10', 'python'):
+    for name in ('python3.14', 'python3.13', 'python3.12', 'python3.11', 'python'):
         executable = shutil.which(name)
         if not executable:
             continue
         try:
             probe = subprocess.run(
-                [executable, '-c', 'import sys; sys.exit(sys.version_info < (3, 10))'],
+                [executable, '-c', f'import sys; sys.exit(sys.version_info < {MIN_PYTHON_VERSION})'],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
             )
             if probe.returncode == 0:
                 os.execv(executable, [executable, os.path.abspath(__file__), *sys.argv[1:]])
         except (OSError, subprocess.TimeoutExpired):
             continue
-    sys.exit('Python 3.10+ required. Install a supported Python and make it available on PATH.')
+    sys.exit(f'Python {MIN_PYTHON_VERSION_TEXT}+ required. '
+             'Install a supported Python and make it available on PATH.')
 
 
 if __name__ == '__main__':
@@ -37,6 +42,7 @@ if __name__ == '__main__':
 
 import argparse
 import dataclasses
+import glob
 import json
 import logging
 import re
@@ -57,18 +63,18 @@ DEFAULT_FORMAT_SELECTOR = (
     "best[ext=mp4]/best"
 )
 
-# Supported clients as of yt-dlp 2026.08.19. Keep the initial attempt on
+# Supported clients as of yt-dlp 2026.10.26. Keep the initial attempt on
 # yt-dlp's own defaults so it can choose clients based on authentication.
-RECOMMENDED_YTDLP_VERSION = '2026.08.19'
+RECOMMENDED_YTDLP_VERSION = '2026.10.26'
 YOUTUBE_CLIENTS = [
-    'default', 'web', 'android', 'tv', 'tv_downgraded', 'mweb',
+    'default', 'web', 'android', 'tv', 'tv_downgraded', 'tv_samsung', 'mweb',
     'web_embedded', 'web_safari', 'web_creator', 'android_vr', 'web_music',
     'visionos', 'ios', 'tv_simply',
 ]
 # Prefer cookie-capable clients for retries; android_vr remains manual-only
 # because upstream reports HTTP 403 errors for all of its formats.
 YOUTUBE_FALLBACK_CLIENTS = [
-    'web_embedded', 'tv_downgraded', 'web_creator', 'web', 'mweb',
+    'web_embedded', 'tv_samsung', 'tv_downgraded', 'web_creator', 'web', 'mweb',
     'web_safari', 'web_music', 'tv', 'visionos', 'android', 'ios', 'tv_simply',
 ]
 
@@ -136,18 +142,41 @@ class VideoDownloader:
             '/Applications/Safari.app'
         ]
     }
+    # Cookie databases yt-dlp can read for each browser. A readable file here
+    # is the real prerequisite; the install directory alone proves nothing
+    # (macOS TCC can block reads below ~/Library/Application Support).
+    COOKIE_DB_GLOBS = {
+        'chrome': [
+            '~/Library/Application Support/Google/Chrome/*/Cookies',
+            '~/Library/Application Support/Google/Chrome/*/Network/Cookies',
+            '~/.config/google-chrome/*/Cookies',
+            '~/.config/google-chrome/*/Network/Cookies',
+            '~/.config/chromium/*/Cookies',
+            '~/.config/chromium/*/Network/Cookies',
+        ],
+        'firefox': [
+            '~/Library/Application Support/Firefox/Profiles/*/cookies.sqlite',
+            '~/.mozilla/firefox/*/cookies.sqlite',
+            '~/snap/firefox/common/.mozilla/firefox/*/cookies.sqlite',
+        ],
+        'safari': [
+            '~/Library/Cookies/Cookies.binarycookies',
+            '~/Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies',
+        ],
+    }
 
     def __init__(self, cookies_browser: str = 'chrome'):
         self.cookies_browser = cookies_browser
-        self.cookies_browser_arg = cookies_browser
+        self.cookies_browser_arg: Optional[str] = cookies_browser
         self._validate_dependencies()
     
     def _validate_dependencies(self) -> None:
         """Validate that required dependencies are available."""
-        # Check Python version (3.10+ required as of yt-dlp 2025.10.22)
-        if sys.version_info < (3, 10):
+        # Check Python version (current yt-dlp requires it)
+        if sys.version_info < MIN_PYTHON_VERSION:
             raise YtDlpWrapperError(
-                f"Python 3.10+ required (you have {sys.version_info.major}.{sys.version_info.minor}). "
+                f"Python {MIN_PYTHON_VERSION_TEXT}+ required "
+                f"(you have {sys.version_info.major}.{sys.version_info.minor}). "
                 "Please upgrade Python."
             )
 
@@ -186,22 +215,52 @@ class VideoDownloader:
         paths = self.BROWSER_PATHS.get(browser, [])
         return any(Path(p).expanduser().exists() for p in paths)
 
-    def _resolve_browser(self, preferred: str) -> str:
-        """Resolve the browser to use, falling back through the list if needed."""
-        if self._is_browser_available(preferred):
-            self.cookies_browser_arg = preferred
-            return preferred
+    def _has_readable_cookies(self, browser: str) -> bool:
+        """Check that yt-dlp can actually read this browser's cookie database."""
+        for pattern in self.COOKIE_DB_GLOBS.get(browser, []):
+            for db_path in glob.glob(os.path.expanduser(pattern)):
+                try:
+                    with open(db_path, 'rb') as db:
+                        if db.read(16):
+                            return True
+                except OSError:
+                    continue
+        return False
 
-        logger.warning(f"{preferred} not found, trying fallback browsers...")
-        for browser in self.BROWSER_FALLBACK_ORDER:
-            if browser != preferred and self._is_browser_available(browser):
-                logger.info(f"Using {browser} for cookie extraction")
+    def _resolve_browser(self, preferred: str) -> Optional[str]:
+        """Resolve a browser for cookie extraction, or None when none is usable.
+
+        A browser only qualifies when it is installed *and* its cookie database
+        is readable. Passing an unreadable database to ``--cookies-from-browser``
+        makes yt-dlp abort before extraction, so cookies are skipped instead and
+        public videos still download.
+        """
+        candidates = [preferred, *(b for b in self.BROWSER_FALLBACK_ORDER if b != preferred)]
+        installed_but_unreadable = []
+        for browser in candidates:
+            if not self._is_browser_available(browser):
+                continue
+            if self._has_readable_cookies(browser):
+                if browser != preferred:
+                    logger.info(f"Using {browser} for cookie extraction")
                 self.cookies_browser_arg = browser
                 return browser
+            installed_but_unreadable.append(browser)
 
-        logger.warning("No supported browser found. Downloads may fail for authenticated content.")
-        self.cookies_browser_arg = preferred
-        return preferred
+        if installed_but_unreadable:
+            logger.warning(
+                f"Cookie database not readable for: {', '.join(installed_but_unreadable)}. "
+                "Continuing without cookies; authenticated videos may fail. "
+                "Grant Full Disk Access to your terminal (System Settings → Privacy & Security → "
+                "Full Disk Access) or pass --cookies <cookies.txt>."
+            )
+        else:
+            logger.warning(
+                f"None of the supported browsers ({', '.join(candidates)}) found. "
+                "Continuing without cookies; authenticated content may fail."
+            )
+        self.cookies_browser_arg = None
+        return None
 
     def _check_javascript_runtime(self) -> Optional[str]:
         """Check for available JavaScript runtime for YouTube downloads."""
@@ -306,7 +365,9 @@ class VideoDownloader:
 
     def _build_extraction_args(self, opts: DownloadOptions) -> List[str]:
         """Settings shared by metadata extraction and the actual download."""
-        cmd = ['--cookies-from-browser', self.cookies_browser_arg]
+        cmd = []
+        if self.cookies_browser_arg:
+            cmd.extend(['--cookies-from-browser', self.cookies_browser_arg])
         if self.detect_platform(opts.url) != 'youtube':
             return cmd
 
