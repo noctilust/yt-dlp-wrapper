@@ -60,7 +60,7 @@ No automated tests, lint/typecheck, or format commands — manual verification o
 - **Browser fallback chain**: chrome → firefox → safari, but only for browsers whose cookie database is readable; otherwise cookie extraction is skipped with a warning.
 - **Format preference**: 2160p → 1440p → 1080p → 720p, codec av01 > vp9 > avc1.
 - **Timeouts**: 5 min metadata, 1 hour download (hard-coded in subprocess calls).
-- **PO Token provider**: auto-detected (checks plugin + HTTP server on `127.0.0.1:4416`); custom URL/mode via `--pot-provider-*` flags. With fallback enabled, failed downloads log guidance and retry the fallback clients when either no client was chosen or a SABR/PO Token error is detected.
+- **PO Token provider**: auto-detected by probing the `yt-dlp` on PATH (`-v --simulate` against a bogus video ID; the `PO Token Providers:` debug line is cached and parsed) plus a TCP check of the HTTP server on `127.0.0.1:4416`; custom URL/mode via `--pot-provider-*` flags. `_detect_pot_providers()` returns `None` when the probe is inconclusive, which skips the provider messages. With fallback enabled, failed downloads log guidance and retry the fallback clients when either no client was chosen or a SABR/PO Token error is detected.
 - **Error handling**: dependency validation fails fast when yt-dlp is missing, warns for old yt-dlp/ffmpeg; `download_video()` returns bool, `main()` exits 0/1.
 
 ## Key constraints

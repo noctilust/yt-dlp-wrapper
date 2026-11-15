@@ -39,6 +39,8 @@ uv pip install bgutil-ytdlp-pot-provider
 docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider
 ```
 
+The plugin is loaded by the `yt-dlp` executable, not by the wrapper, so it must be installed into the environment that provides `yt-dlp` on PATH (activate that venv before running). The wrapper probes the executable and reports which PO Token providers it loaded. Keep the plugin and the HTTP server on the same version (`uv pip install -U bgutil-ytdlp-pot-provider`); the plugin refuses requests when major versions differ.
+
 If `python3` is older than 3.11, the script searches PATH for Python 3.14–3.11 and relaunches.
 
 ## Usage

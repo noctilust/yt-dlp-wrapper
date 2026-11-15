@@ -85,6 +85,11 @@ SUPPORTED_PLATFORMS = {
 }
 YOUTUBE_REMOTE_COMPONENT_ARGS = ['--remote-components', 'ejs:github']
 
+# Bogus video ID used only to boot the YouTube extractor, so the yt-dlp on PATH
+# reports which PO Token providers it can load (debug output, no download).
+POT_PROBE_URL = 'https://www.youtube.com/watch?v=AAAAAAAAAAA'
+POT_PROVIDERS_PATTERN = re.compile(r'\[pot\] PO Token Providers: (?P<providers>.+)')
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -168,6 +173,8 @@ class VideoDownloader:
     def __init__(self, cookies_browser: str = 'chrome'):
         self.cookies_browser = cookies_browser
         self.cookies_browser_arg: Optional[str] = cookies_browser
+        self._pot_providers: Optional[str] = None
+        self._pot_probe_done = False
         self._validate_dependencies()
     
     def _validate_dependencies(self) -> None:
@@ -279,18 +286,34 @@ class VideoDownloader:
 
         return None
 
-    def _check_pot_plugin_installed(self) -> bool:
-        """Check if bgutil-ytdlp-pot-provider plugin is installed."""
-        try:
-            import importlib.util
-            installed = importlib.util.find_spec("bgutil_ytdlp_pot_provider") is not None
-            if installed:
-                logger.debug("PO Token provider plugin is installed")
-            return installed
-        except (ImportError, ModuleNotFoundError, ValueError) as e:
-            # find_spec can raise ValueError for names without a parent package
-            logger.debug(f"Could not check PO Token plugin: {e}")
-            return False
+    def _detect_pot_providers(self) -> Optional[str]:
+        """Return the PO Token provider list reported by the yt-dlp on PATH.
+
+        The bgutil distribution ships a yt-dlp plugin
+        (``yt_dlp_plugins.extractor.getpot_bgutil*``), not an importable
+        ``bgutil_ytdlp_pot_provider`` module, so only the executable that will
+        run the download knows whether the plugin is visible to it. Probing
+        this interpreter's own imports proves nothing. None means the probe
+        was inconclusive.
+        """
+        if not self._pot_probe_done:
+            self._pot_probe_done = True
+            try:
+                probe = subprocess.run(
+                    ['yt-dlp', '-v', '--simulate', '--no-warnings', POT_PROBE_URL],
+                    capture_output=True, text=True, timeout=30,
+                )
+                match = POT_PROVIDERS_PATTERN.search(probe.stderr or '')
+                if match:
+                    self._pot_providers = match.group('providers').strip()
+                    logger.debug(f"yt-dlp PO Token providers: {self._pot_providers}")
+            except (OSError, subprocess.SubprocessError) as e:
+                logger.debug(f"Could not probe yt-dlp for PO Token providers: {e}")
+        return self._pot_providers
+
+    def _has_pot_provider(self) -> bool:
+        """Whether the yt-dlp on PATH can load the bgutil PO Token provider."""
+        return 'bgutil' in (self._detect_pot_providers() or '')
 
     def _check_pot_server_running(self, host: str = '127.0.0.1', port: int = 4416, timeout: float = 1.0) -> bool:
         """Check if the PO Token HTTP server is running."""
@@ -316,30 +339,36 @@ class VideoDownloader:
         if self.detect_platform(url) != 'youtube':
             return
 
-        # Check if plugin is installed
-        plugin_installed = self._check_pot_plugin_installed()
+        providers = self._detect_pot_providers()
 
-        if not plugin_installed:
+        if providers is None:
+            logger.debug('PO Token provider status unknown; skipping provider checks')
+            return
+
+        if not self._has_pot_provider():
+            yt_dlp_path = shutil.which('yt-dlp') or 'yt-dlp'
             logger.info(
                 "💡 Tip: Install bgutil-ytdlp-pot-provider to bypass YouTube's bot detection:\n"
                 "   uv pip install bgutil-ytdlp-pot-provider\n"
-                "   See: https://github.com/Brainicism/bgutil-ytdlp-pot-provider"
+                "   See: https://github.com/Brainicism/bgutil-ytdlp-pot-provider\n"
+                f"   It must be visible to the yt-dlp this wrapper runs on PATH ({yt_dlp_path});\n"
+                "   activate that virtualenv first if the plugin lives in one."
             )
             return
 
-        # Plugin is installed, check which mode to use
+        # Provider plugin is available to yt-dlp, check which mode to use
         if pot_provider_mode == 'script':
-            logger.info("Using PO Token provider in script mode")
+            logger.info(f"Using PO Token provider in script mode ({providers})")
             return  # Script mode uses default plugin behavior
 
         # Default to HTTP server mode
         server_running = self._check_pot_server_running()
 
         if server_running:
-            logger.info("✓ PO Token provider HTTP server detected and ready")
+            logger.info(f"✓ PO Token provider detected and ready ({providers})")
         else:
             logger.warning(
-                "⚠️  PO Token provider plugin installed but HTTP server not detected.\n"
+                f"⚠️  PO Token provider plugin detected ({providers}) but HTTP server not detected.\n"
                 "   Start the server with Docker:\n"
                 "     docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider\n"
                 "   Or use Node.js (see: https://github.com/Brainicism/bgutil-ytdlp-pot-provider)\n"
@@ -684,10 +713,10 @@ class VideoDownloader:
                 "PO Token", "po_token", "requires a GVS PO Token"]):
                 po_token_error = True
 
-                # Check if plugin is installed
-                plugin_installed = self._check_pot_plugin_installed()
+                # Check whether the invoked yt-dlp can load the provider plugin
+                pot_provider_available = self._has_pot_provider()
 
-                if not plugin_installed:
+                if not pot_provider_available:
                     logger.warning(
                         "⚠️  YouTube PO Token required.\n"
                         "   \n"
