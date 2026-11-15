@@ -17,7 +17,7 @@ uv pip install -U 'yt-dlp[default]'
 
 # optional PO Token provider (recommended for YouTube)
 uv pip install bgutil-ytdlp-pot-provider
-docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider
+docker run --name bgutil-provider -d -p 127.0.0.1:4416:4416 --init brainicism/bgutil-ytdlp-pot-provider
 ```
 
 No automated tests, lint/typecheck, or format commands — manual verification only.

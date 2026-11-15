@@ -370,7 +370,7 @@ class VideoDownloader:
             logger.warning(
                 f"⚠️  PO Token provider plugin detected ({providers}) but HTTP server not detected.\n"
                 "   Start the server with Docker:\n"
-                "     docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider\n"
+                "     docker run --name bgutil-provider -d -p 127.0.0.1:4416:4416 --init brainicism/bgutil-ytdlp-pot-provider\n"
                 "   Or use Node.js (see: https://github.com/Brainicism/bgutil-ytdlp-pot-provider)\n"
                 "   Alternatively, use --pot-provider-mode script (slower but no server needed)"
             )
@@ -724,7 +724,7 @@ class VideoDownloader:
                         "     uv pip install bgutil-ytdlp-pot-provider\n"
                         "   \n"
                         "   Then start the HTTP server with Docker:\n"
-                        "     docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider\n"
+                        "     docker run --name bgutil-provider -d -p 127.0.0.1:4416:4416 --init brainicism/bgutil-ytdlp-pot-provider\n"
                         "   \n"
                         "   This automates PO Token generation. See:\n"
                         "     https://github.com/Brainicism/bgutil-ytdlp-pot-provider\n"
@@ -736,7 +736,7 @@ class VideoDownloader:
                         "⚠️  YouTube PO Token required but provider plugin failed.\n"
                         "   \n"
                         "   Make sure the HTTP server is running:\n"
-                        "     docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider\n"
+                        "     docker run --name bgutil-provider -d -p 127.0.0.1:4416:4416 --init brainicism/bgutil-ytdlp-pot-provider\n"
                         "   \n"
                         "   Or try script mode: --pot-provider-mode script\n"
                         "   Or try 'mweb' client: --youtube-client mweb"
